@@ -1,5 +1,7 @@
 datasets/
 !datasets/.gitkeep
+logs/
+weights/
 
 __pycache__/
 *.pyc
