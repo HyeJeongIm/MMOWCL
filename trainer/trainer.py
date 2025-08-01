@@ -106,7 +106,7 @@ def _train(args):
         model.incremental_train(data_manager)
         
         # Phase 2: Evaluation
-        ood_results, cl_results = model.evaluate_cl_ood()
+        ood_results, cl_results, score_distributions = model.evaluate_cl_ood()
         # Collect task results
         task_info = {
             'learning_classes': f"{model._known_classes}-{model._total_classes-1}",
@@ -115,7 +115,8 @@ def _train(args):
             'id_test_samples': len(model.test_loader.dataset),
             'ood_test_samples': len(model.ood_test_loader.dataset) if model.ood_test_loader else 0,
             'cl_accuracy': cl_results['cnn']['top1'],
-            'ood_results': ood_results
+            'ood_results': ood_results,
+            'score_distributions': score_distributions  # Add score distributions for visualization
         }
         collector.add_task_result(task_id, task_info)
         
@@ -151,7 +152,7 @@ def _train(args):
     
     # Final summary
     _log_final_summary(all_cl_results, all_ood_results, data_manager.nb_tasks)
-    import ipdb; ipdb.set_trace()
+    # import ipdb; ipdb.set_trace()
     
 def _log_final_summary(cl_results, ood_results, nb_tasks):
     """Log comprehensive final results summary"""

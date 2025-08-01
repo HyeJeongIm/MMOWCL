@@ -400,16 +400,17 @@ class MyEWC(BaseLearner):
         # Step 2: Multiple OOD method evaluation
         if "ood_methods" not in self.args:
             logging.error("ood_methods not found in configuration file!")
-            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}
+            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
         
         ood_methods = self.args["ood_methods"]
         
         logging.info(f"OOD Methods from JSON: {ood_methods}")
         if self.ood_test_loader is None:
             logging.warning("No OOD test data available. Skipping OOD evaluation.")
-            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}
+            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
         
         ood_results = {}
+        score_distributions = {}  # Store ID/OOD scores for visualization
         
         logging.info("=== OOD Detection Results ===")
         
@@ -432,6 +433,12 @@ class MyEWC(BaseLearner):
                 id_scores = detector.compute_scores(self.test_loader)      
                 ood_scores = detector.compute_scores(self.ood_test_loader) 
                 
+                # Store score distributions for visualization
+                score_distributions[method_name] = {
+                    'id_scores': id_scores.tolist() if hasattr(id_scores, 'tolist') else list(id_scores),
+                    'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores)
+                }
+                
                 # Compute OOD metrics
                 metrics = compute_ood_metrics(id_scores, ood_scores, method_name)
                 ood_results[method_name] = metrics
@@ -440,6 +447,8 @@ class MyEWC(BaseLearner):
                 if 'error' not in metrics:
                     logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%")
                     logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
+                    logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
+                    logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
                 else:
                     logging.error(f"{method_name}: Error - {metrics['error']}")
                     
@@ -451,4 +460,4 @@ class MyEWC(BaseLearner):
         self.latest_ood_results = ood_results
         self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
         
-        return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}
+        return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}, score_distributions

@@ -43,7 +43,8 @@ class SimpleResultCollector:
             'id_test_samples': task_info['id_test_samples'],
             'ood_test_samples': task_info['ood_test_samples'],
             'cl_accuracy': task_info['cl_accuracy'],
-            'ood_results': task_info['ood_results']
+            'ood_results': task_info['ood_results'],
+            'score_distributions': task_info.get('score_distributions', {})  # New: store ID/OOD scores
         })
     
     def save_results(self):
@@ -103,6 +104,9 @@ class SimpleResultCollector:
         
         # 4. OOD Performance Tables (AUROC + FPR95 numerical tables)
         self._create_ood_performance_tables(df)
+        
+        # 5. Score Distribution Analysis (NEW)
+        self._create_score_distributions()
     
     def _create_task_info_summary(self, df):
         """Create task information and sample distribution summary"""
@@ -449,3 +453,300 @@ class SimpleResultCollector:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"✓ OOD performance tables saved: {save_path}")
+    
+    def _create_score_distributions(self):
+        """Create ID/OOD score distribution analysis for each task"""
+        print("Creating score distribution analysis...")
+        
+        # Create subdirectory for score distributions
+        score_dir = os.path.join(self.vis_dir, 'score_distributions')
+        os.makedirs(score_dir, exist_ok=True)
+        
+        # Collect all available methods and tasks
+        all_methods = set()
+        tasks_with_scores = []
+        
+        for task in self.results['tasks']:
+            if 'score_distributions' in task and task['score_distributions'] and task['ood_test_samples'] > 0:
+                tasks_with_scores.append(task)
+                all_methods.update(task['score_distributions'].keys())
+        
+        if not tasks_with_scores or not all_methods:
+            print("No score distribution data available.")
+            return
+        
+        # Beautiful color palettes
+        task_colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F']
+        id_color = '#2E86C1'    # Beautiful blue
+        ood_color = '#E74C3C'   # Beautiful red
+        
+        # Create visualization for each method
+        for method in sorted(all_methods):
+            print(f"Creating {method} score distribution visualization...")
+            
+            # Collect data for this method across all tasks
+            method_data = []
+            for task in tasks_with_scores:
+                if method in task['score_distributions']:
+                    score_data = task['score_distributions'][method]
+                    id_scores = np.array(score_data.get('id_scores', []))
+                    ood_scores = np.array(score_data.get('ood_scores', []))
+                    
+                    if len(id_scores) > 0 and len(ood_scores) > 0:
+                        method_data.append({
+                            'task_id': task['task_id'],
+                            'id_scores': id_scores,
+                            'ood_scores': ood_scores,
+                            'learning_classes': task['learning_classes'],
+                            'ood_classes': task['ood_classes']
+                        })
+            
+            if not method_data:
+                continue
+            
+            # Create figure for this method
+            n_tasks = len(method_data)
+            fig, axes = plt.subplots(1, n_tasks, figsize=(6*n_tasks, 8))
+            if n_tasks == 1:
+                axes = [axes]
+            
+            fig.suptitle(f'{method} Score Distributions Across Tasks', fontsize=18, fontweight='bold', y=0.95)
+            
+            # Global min/max for consistent y-axis
+            all_scores = []
+            for data in method_data:
+                all_scores.extend(data['id_scores'])
+                all_scores.extend(data['ood_scores'])
+            global_min, global_max = np.min(all_scores), np.max(all_scores)
+            
+            for idx, data in enumerate(method_data):
+                ax = axes[idx]
+                task_id = data['task_id']
+                id_scores = data['id_scores']
+                ood_scores = data['ood_scores']
+                
+                # Calculate bins for consistent visualization
+                bins = np.linspace(global_min, global_max, 40)
+                
+                # Plot histograms with beautiful colors
+                ax.hist(id_scores, bins=bins, alpha=0.75, color=id_color, 
+                       label=f'ID (n={len(id_scores)})', density=True, 
+                       edgecolor='white', linewidth=1.2)
+                ax.hist(ood_scores, bins=bins, alpha=0.75, color=ood_color, 
+                       label=f'OOD (n={len(ood_scores)})', density=True, 
+                       edgecolor='white', linewidth=1.2)
+                
+                # Add vertical lines for means with better styling
+                id_mean = id_scores.mean()
+                ood_mean = ood_scores.mean()
+                
+                ax.axvline(id_mean, color='#1B4F72', linestyle='--', linewidth=2.5, 
+                          label=f'ID μ: {id_mean:.3f}', alpha=0.8)
+                ax.axvline(ood_mean, color='#922B21', linestyle='--', linewidth=2.5, 
+                          label=f'OOD μ: {ood_mean:.3f}', alpha=0.8)
+                
+                # Calculate and display overlap
+                overlap_area = self._calculate_overlap(id_scores, ood_scores, bins)
+                
+                # Beautiful styling
+                ax.set_title(f'Task {task_id}\nID: {data["learning_classes"]} | OOD: {data["ood_classes"]}\nOverlap: {overlap_area:.1f}%', 
+                           fontweight='bold', fontsize=12, pad=15)
+                ax.set_xlabel('Score', fontsize=11, fontweight='bold')
+                if idx == 0:
+                    ax.set_ylabel('Density', fontsize=11, fontweight='bold')
+                
+                # Legend with better positioning
+                ax.legend(loc='upper right', frameon=True, fancybox=True, shadow=True, 
+                         fontsize=9, framealpha=0.9)
+                
+                # Grid and styling
+                ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.8)
+                ax.set_facecolor('#FAFAFA')
+                
+                # Set consistent y-axis limits
+                ax.set_ylim(bottom=0)
+                
+                # Add task progression indicator with color
+                task_color = task_colors[idx % len(task_colors)]
+                ax.add_patch(plt.Rectangle((0.02, 0.95), 0.05, 0.03, 
+                           transform=ax.transAxes, facecolor=task_color, 
+                           alpha=0.8, clip_on=False))
+                ax.text(0.1, 0.965, f'Task {task_id}', transform=ax.transAxes, 
+                       fontsize=10, fontweight='bold', va='center',
+                       color=task_color)
+                
+                # Add separability score
+                avg_std = (id_scores.std() + ood_scores.std()) / 2
+                separability = abs(id_mean - ood_mean) / (avg_std + 1e-8)
+                ax.text(0.02, 0.85, f'Separability: {separability:.2f}', 
+                       transform=ax.transAxes, fontsize=9, 
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+            
+            plt.tight_layout()
+            save_path = os.path.join(score_dir, f'{method.lower()}_score_distribution.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close()
+            print(f"✓ {method} score distribution saved: {save_path}")
+        
+        # Create summary comparison (keep the existing one but with better colors)
+        self._create_score_summary_comparison(score_dir)
+    
+    def _calculate_overlap(self, id_scores, ood_scores, bins):
+        """Calculate overlap percentage between ID and OOD score distributions"""
+        id_hist, _ = np.histogram(id_scores, bins=bins, density=True)
+        ood_hist, _ = np.histogram(ood_scores, bins=bins, density=True)
+        
+        # Normalize histograms to sum to 1
+        id_hist = id_hist / np.sum(id_hist)
+        ood_hist = ood_hist / np.sum(ood_hist)
+        
+        # Calculate overlap as minimum of the two distributions
+        overlap = np.sum(np.minimum(id_hist, ood_hist)) * 100
+        return overlap
+    
+    def _create_score_summary_comparison(self, score_dir):
+        """Create summary comparison of score separability across all tasks"""
+        tasks_with_scores = [task for task in self.results['tasks'] 
+                           if task.get('score_distributions') and task['ood_test_samples'] > 0]
+        
+        if not tasks_with_scores:
+            return
+        
+        # Collect data for summary
+        summary_data = {}
+        
+        for task in tasks_with_scores:
+            task_id = task['task_id']
+            score_data = task['score_distributions']
+            
+            for method in score_data:
+                if method not in summary_data:
+                    summary_data[method] = {
+                        'tasks': [],
+                        'separability': [],
+                        'id_means': [],
+                        'ood_means': [],
+                        'overlap_areas': []
+                    }
+                
+                id_scores = np.array(score_data[method].get('id_scores', []))
+                ood_scores = np.array(score_data[method].get('ood_scores', []))
+                
+                if len(id_scores) > 0 and len(ood_scores) > 0:
+                    # Calculate separability (difference in means / average std)
+                    id_mean, ood_mean = id_scores.mean(), ood_scores.mean()
+                    avg_std = (id_scores.std() + ood_scores.std()) / 2
+                    separability = abs(id_mean - ood_mean) / (avg_std + 1e-8)
+                    
+                    # Calculate overlap
+                    all_scores = np.concatenate([id_scores, ood_scores])
+                    bins = np.linspace(all_scores.min(), all_scores.max(), 50)
+                    overlap = self._calculate_overlap(id_scores, ood_scores, bins)
+                    
+                    summary_data[method]['tasks'].append(task_id)
+                    summary_data[method]['separability'].append(separability)
+                    summary_data[method]['id_means'].append(id_mean)
+                    summary_data[method]['ood_means'].append(ood_mean)
+                    summary_data[method]['overlap_areas'].append(overlap)
+        
+        # Create summary plots with beautiful colors
+        if summary_data:
+            methods = list(summary_data.keys())
+            n_methods = len(methods)
+            
+            fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+            fig.suptitle('Score Distribution Summary Across All Tasks', fontsize=18, fontweight='bold')
+            
+            # Beautiful color palette
+            colors = ['#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C']
+            
+            # 1. Separability across tasks
+            ax1 = axes[0, 0]
+            for i, method in enumerate(methods):
+                tasks = summary_data[method]['tasks']
+                separability = summary_data[method]['separability']
+                ax1.plot(tasks, separability, marker='o', linewidth=3, markersize=8,
+                        color=colors[i % len(colors)], label=method, alpha=0.8,
+                        markerfacecolor='white', markeredgewidth=2)
+            
+            ax1.set_xlabel('Task Number', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Separability Score', fontsize=12, fontweight='bold')
+            ax1.set_title('ID/OOD Separability Across Tasks\n(Higher = Better)', fontweight='bold', fontsize=14)
+            ax1.legend(frameon=True, fancybox=True, shadow=True)
+            ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.8)
+            ax1.set_facecolor('#FAFAFA')
+            
+            # 2. Overlap percentage across tasks
+            ax2 = axes[0, 1]
+            for i, method in enumerate(methods):
+                tasks = summary_data[method]['tasks']
+                overlap = summary_data[method]['overlap_areas']
+                ax2.plot(tasks, overlap, marker='s', linewidth=3, markersize=8,
+                        color=colors[i % len(colors)], label=method, alpha=0.8,
+                        markerfacecolor='white', markeredgewidth=2)
+            
+            ax2.set_xlabel('Task Number', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Overlap Percentage (%)', fontsize=12, fontweight='bold')
+            ax2.set_title('ID/OOD Distribution Overlap\n(Lower = Better)', fontweight='bold', fontsize=14)
+            ax2.legend(frameon=True, fancybox=True, shadow=True)
+            ax2.grid(True, alpha=0.3, linestyle=':', linewidth=0.8)
+            ax2.set_facecolor('#FAFAFA')
+            
+            # 3. Mean score trends
+            ax3 = axes[1, 0]
+            for i, method in enumerate(methods):
+                tasks = summary_data[method]['tasks']
+                id_means = summary_data[method]['id_means']
+                ood_means = summary_data[method]['ood_means']
+                
+                ax3.plot(tasks, id_means, marker='o', linewidth=3, markersize=8, linestyle='-',
+                        color=colors[i % len(colors)], label=f'{method} ID', alpha=0.8,
+                        markerfacecolor='white', markeredgewidth=2)
+                ax3.plot(tasks, ood_means, marker='s', linewidth=3, markersize=8, linestyle='--',
+                        color=colors[i % len(colors)], label=f'{method} OOD', alpha=0.6,
+                        markerfacecolor='white', markeredgewidth=2)
+            
+            ax3.set_xlabel('Task Number', fontsize=12, fontweight='bold')
+            ax3.set_ylabel('Mean Score', fontsize=12, fontweight='bold')
+            ax3.set_title('Mean Score Trends', fontweight='bold', fontsize=14)
+            ax3.legend(frameon=True, fancybox=True, shadow=True)
+            ax3.grid(True, alpha=0.3, linestyle=':', linewidth=0.8)
+            ax3.set_facecolor('#FAFAFA')
+            
+            # 4. Method comparison summary
+            ax4 = axes[1, 1]
+            method_avg_sep = [np.mean(summary_data[m]['separability']) for m in methods]
+            method_avg_overlap = [np.mean(summary_data[m]['overlap_areas']) for m in methods]
+            
+            x = np.arange(len(methods))
+            width = 0.35
+            
+            bars1 = ax4.bar(x - width/2, method_avg_sep, width, label='Avg Separability', 
+                           color='#2ECC71', alpha=0.8, edgecolor='white', linewidth=1.5)
+            ax4_twin = ax4.twinx()
+            bars2 = ax4_twin.bar(x + width/2, method_avg_overlap, width, label='Avg Overlap (%)', 
+                                color='#E74C3C', alpha=0.8, edgecolor='white', linewidth=1.5)
+            
+            ax4.set_xlabel('OOD Method', fontsize=12, fontweight='bold')
+            ax4.set_ylabel('Average Separability', color='#2ECC71', fontsize=12, fontweight='bold')
+            ax4_twin.set_ylabel('Average Overlap (%)', color='#E74C3C', fontsize=12, fontweight='bold')
+            ax4.set_title('Method Performance Summary', fontweight='bold', fontsize=14)
+            ax4.set_xticks(x)
+            ax4.set_xticklabels(methods)
+            ax4.set_facecolor('#FAFAFA')
+            
+            # Add value labels with better styling
+            for bar, val in zip(bars1, method_avg_sep):
+                ax4.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.05,
+                        f'{val:.2f}', ha='center', va='bottom', fontweight='bold', fontsize=10)
+            for bar, val in zip(bars2, method_avg_overlap):
+                ax4_twin.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 1,
+                             f'{val:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=10)
+            
+            ax4.grid(True, alpha=0.3, linestyle=':', linewidth=0.8)
+            
+            plt.tight_layout()
+            save_path = os.path.join(score_dir, '00_score_summary_comparison.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close()
+            print(f"✓ Score summary comparison saved: {save_path}")
