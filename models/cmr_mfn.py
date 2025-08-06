@@ -244,9 +244,11 @@ class CMR_MFN(BaseLearner):
 
         return np.concatenate(y_pred), np.concatenate(y_true), results  # [N, topk]
 
-    def eval_task(self, scores_dir):
+    # # def eval_task(self, scores_dir):
+    # #     y_pred, y_true, results = self._eval_cnn(self.test_loader)
+    # #     self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
+    def eval_task(self):
         y_pred, y_true, results = self._eval_cnn(self.test_loader)
-        self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
         cnn_accy = self._evaluate(y_pred, y_true)
 
         if hasattr(self, "_class_means"):

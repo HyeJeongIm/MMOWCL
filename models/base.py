@@ -20,6 +20,7 @@ class BaseLearner(object):
         self._old_network = None
         self._data_memory, self._targets_memory = np.array([]), np.array([])
         self.topk = 1
+        self.training_iterations = 0
 
         self._memory_size = args["memory_size"]
         self._memory_per_class = args.get("memory_per_class", None)
@@ -69,7 +70,6 @@ class BaseLearner(object):
 
     def _evaluate(self, y_pred, y_true):
         ret = {}
-        # ✅ accuracy 함수가 (acc_total, all_acc) 튜플을 반환하므로 언패킹
         acc_total, all_acc = accuracy(y_pred.T[0], y_true, self._known_classes, self.class_increments)
         ret["grouped"] = all_acc  # 태스크별 정확도 딕셔너리
         ret["top1"] = acc_total   # 전체 정확도
