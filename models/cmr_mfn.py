@@ -1,0 +1,448 @@
+import logging
+import numpy as np
+from tqdm import tqdm
+import torch
+from torch import nn
+from torch import optim
+from torch.nn import functional as F
+from torch.utils.data import DataLoader
+from models.base import BaseLearner
+from models.baseline_cmr import BaselineCMR
+from utils.toolkit import count_parameters, tensor2numpy
+from ood import MSPDetector, EnergyDetector, ODINDetector
+from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
+
+EPSILON = 1e-8
+T = 2
+
+
+class CMR_MFN(BaseLearner):
+    def __init__(self, args):
+        super().__init__(args)
+        self._batch_size = args["batch_size"]
+        self._num_workers = args["workers"]
+        self._lr = args["lr"]
+        self._epochs = args["epochs"]
+        self._momentum = args["momentum"]
+        self._weight_decay = args["weight_decay"]
+        self._lr_steps = args["lr_steps"]
+        self._modality = args["modality"]
+
+        self._freeze = args["freeze"]
+        self._clip_gradient = args["clip_gradient"]
+
+        self._network = BaselineCMR(args)
+        
+        # OOD related attributes
+        self.args = args
+        self.total_classnum = None
+        self.ood_test_loader = None
+        self.test_loader = None
+        self.train_loader = None
+        self._classes_seen_so_far = 0
+        self.class_increments = []
+        
+    def after_task(self):
+        self._known_classes = self._total_classes
+
+    def incremental_train(self, data_manager):
+        self._cur_task += 1
+        self._cur_task_size = data_manager.get_task_size(self._cur_task)
+        self._total_classes = self._known_classes + self._cur_task_size
+        self.data_manager = data_manager
+        
+        # Set total class number for OOD evaluation
+        if self.total_classnum is None:
+            self.total_classnum = data_manager.get_total_classnum()
+        self._classes_seen_so_far = self._total_classes
+        
+        # Update class increments for accuracy calculation
+        self.class_increments.append([self._known_classes, self._total_classes-1])
+
+        # Update classifier for current task using gen_train_fc method
+        self._network.gen_train_fc(self._cur_task_size * 2)
+
+        logging.info(
+            "Learning on {}-{}".format(self._known_classes, self._total_classes)
+        )
+
+        # B버전: 이전 태스크의 파라미터 freeze
+        if self._cur_task > 0:
+            for i in range(self._cur_task):
+                for p in self._network.fusion_networks[i].parameters():
+                    p.requires_grad = False
+                for p in self._network.fc_list[i].parameters():
+                    p.requires_grad = False
+
+        # Setup data loaders with OOD support
+        self._setup_data_loaders_with_ood(data_manager)
+        self._train(self.train_loader, self.test_loader)
+
+    def train(self):
+        self._network.train()
+        # B버전: 이전 태스크들은 eval 모드로 설정
+        if self._cur_task > 0:
+            for i in range(self._cur_task):
+                self._network.fusion_networks[i].eval()
+                self._network.fc_list[i].eval()
+
+    def _train(self, train_loader, test_loader):
+        self._network.to(self._device)
+
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self._network.parameters()),
+                                        self._lr,
+                                        weight_decay=self._weight_decay)
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, self._lr_steps, gamma=0.1)
+        if self._cur_task == 0:
+            self._init_train(train_loader, test_loader, optimizer, scheduler)
+        else:
+            self._update_representation(train_loader, test_loader, optimizer, scheduler)
+        # B버전: 현재 태스크 파라미터 저장
+        self._network.save_parameter()
+
+    def _init_train(self, train_loader, test_loader, optimizer, scheduler):
+        prog_bar = tqdm(range(self._epochs))
+        for _, epoch in enumerate(prog_bar):
+            self.train()
+            losses = 0.0
+            correct, total = 0, 0
+            for i, (_, inputs, targets) in enumerate(train_loader):
+                for m in self._modality:
+                    inputs[m] = inputs[m].to(self._device)
+                targets = targets.to(self._device)
+
+                # Extract features using Baseline structure
+                features = self._network.backbone(inputs)
+                fake_inputs, fake_targets = self._confusion_mixup(features, targets)
+                fusion_output = self._network.fusion_network(fake_inputs)
+                fake_logits = self._network.fc(fusion_output["features"])['logits']
+                
+                loss_clf = F.cross_entropy(fake_logits, fake_targets)
+                loss = loss_clf
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
+
+                _, preds = torch.max(fake_logits, dim=1)
+                correct += preds.eq(fake_targets.expand_as(preds)).cpu().sum()
+                total += len(fake_targets)
+
+            scheduler.step()
+            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+            self.training_iterations += 1
+
+            if epoch % 5 == 0:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    self._epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    self._epochs,
+                    losses / len(train_loader),
+                    train_acc,
+
+                )
+            prog_bar.set_description(info)
+
+        logging.info(info)
+
+    def _update_representation(self, train_loader, test_loader, optimizer, scheduler):
+        prog_bar = tqdm(range(self._epochs))
+        for _, epoch in enumerate(prog_bar):
+            self.train()
+            losses = 0.0
+            correct, total = 0, 0
+            for i, (_, inputs, targets) in enumerate(train_loader):
+                for m in self._modality:
+                    inputs[m] = inputs[m].to(self._device)
+                targets = targets.to(self._device)
+                targets = targets - self._known_classes
+
+                # Extract features using Baseline structure
+                features = self._network.backbone(inputs)
+                fake_inputs, fake_targets = self._confusion_mixup(features, targets)
+                fusion_output = self._network.fusion_network(fake_inputs)
+                fake_logits = self._network.fc(fusion_output["features"])['logits']
+                
+                loss_clf = F.cross_entropy(fake_logits, fake_targets)
+                loss = loss_clf
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
+
+                _, preds = torch.max(fake_logits, dim=1)
+                correct += preds.eq(fake_targets.expand_as(preds)).cpu().sum()
+                total += len(fake_targets)
+
+            scheduler.step()
+            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+
+            self.training_iterations += 1
+            if epoch % 5 == 0:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    self._epochs,
+                    losses / len(train_loader),
+                    train_acc,
+
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    self._epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                )
+            prog_bar.set_description(info)
+        logging.info(info)
+
+    def _eval_cnn(self, loader):
+        self._network.to(self._device)
+        self._network.eval()
+        y_pred, y_true = [], []
+        results = []
+        for _, (_, inputs, targets) in enumerate(loader):
+            for m in self._modality:
+                inputs[m] = inputs[m].to(self._device)
+            with torch.no_grad():
+                # B버전: test 모드로 evaluation (모든 태스크 결합)
+                outputs = self._network(inputs, self._cur_task_size, mode='test')
+                logits = outputs["logits"]
+            predicts = torch.topk(
+                logits, k=self.topk, dim=1, largest=True, sorted=True
+            )[
+                1
+            ]  # [bs, topk]
+            y_pred.append(predicts.cpu().numpy())
+            y_true.append(targets.cpu().numpy())
+
+            # Store results for analysis - handle multi-modal features
+            feature_dict = {}
+            if isinstance(outputs['features'], dict):
+                for m in self._modality:
+                    feature_dict[m] = outputs['features'][m].cpu().numpy()
+            else:
+                feature_dict = outputs['features'].cpu().numpy()
+                
+            results.append({
+                'features': feature_dict,
+                'fusion_features': outputs['fusion_features'].cpu().numpy(),
+                'logits': logits.cpu().numpy()
+            })
+
+        return np.concatenate(y_pred), np.concatenate(y_true), results  # [N, topk]
+
+    def eval_task(self, scores_dir):
+        y_pred, y_true, results = self._eval_cnn(self.test_loader)
+        self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
+        cnn_accy = self._evaluate(y_pred, y_true)
+
+        if hasattr(self, "_class_means"):
+            y_pred, y_true = self._eval_nme(self.test_loader, self._class_means)
+            nme_accy = self._evaluate(y_pred, y_true)
+        else:
+            nme_accy = None
+
+        return cnn_accy, nme_accy
+    
+    def save_scores(self, results, y_true, y_pred, filename):
+        """Save evaluation results to file"""
+        import pickle
+        import os
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        save_data = {
+            'results': results,
+            'y_true': y_true,
+            'y_pred': y_pred,
+            'task': self._cur_task
+        }
+        
+        with open(filename, 'wb') as f:
+            pickle.dump(save_data, f)
+
+    def _map_targets(self, select_targets):
+        mixup_targets = select_targets + self._cur_task_size
+        return mixup_targets
+
+    def _confusion_mixup(self, inputs, targets, alpha=0.2, mix_time=2):
+        mixup_inputs = {}
+        for m in self._modality:
+            mixup_inputs[m] = []
+        mixup_targets = []
+
+        for _ in range(mix_time):
+            index = torch.randperm(inputs[self._modality[0]].shape[0])
+            perm_targets = targets[index]
+
+            mask = perm_targets != targets
+            
+            for m in self._modality:
+                select_inputs = inputs[m][mask]
+                perm_inputs = inputs[m][index][mask]
+                
+                lams = np.random.beta(alpha, alpha, size=sum(mask))
+                lams = np.where(lams < 0.5, 0.75, lams)
+                # lams = torch.from_numpy(lams).cuda(4)[:, None].float()
+                lams = torch.from_numpy(lams).to(inputs[m].device)[:, None].float()        
+                        
+                if len(lams) != 0:
+                    mixup_input = torch.cat(
+                        [torch.unsqueeze(lams[i] * select_inputs[i] + (1 - lams[i]) * perm_inputs[i], 0) for i in
+                         range(len(lams))], 0)
+                    
+                    mixup_inputs[m].append(mixup_input)
+
+            if len(lams) != 0:
+                select_targets = targets[mask]
+                perm_targets = perm_targets[mask]
+                mixup_targets.append(self._map_targets(select_targets))        
+
+        for m in self._modality:
+            if len(mixup_inputs[m]) != 0:
+                mixup_inputs[m] = torch.cat(mixup_inputs[m], dim=0)
+                inputs[m] = torch.cat([inputs[m], mixup_inputs[m]], dim=0)
+        
+        if len(mixup_targets) != 0:
+            mixup_targets = torch.cat(mixup_targets, dim=0)
+            targets = torch.cat([targets, mixup_targets], dim=0)
+
+        return inputs, targets
+
+    def _setup_data_loaders_with_ood(self, data_manager):
+        """Setup train/test/ood data loaders"""
+        logging.info(f"Setting up data loaders for Task {self._cur_task}")
+        
+        # Training data: current task classes only
+        train_dataset = data_manager.get_dataset(
+            np.arange(self._known_classes, self._total_classes),
+            source="train",
+            mode="train",
+            appendent=self._get_memory(),
+        )
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=self._batch_size, shuffle=True, num_workers=self._num_workers
+        )
+        
+        # Test data: all seen classes so far  
+        test_dataset = data_manager.get_dataset(
+            np.arange(0, self._total_classes), 
+            source="test", 
+            mode="test"
+        )
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
+        )
+        
+        # OOD test data: unseen classes
+        if self._total_classes < self.total_classnum:
+            ood_test_dataset = data_manager.get_dataset(
+                np.arange(self._total_classes, self.total_classnum),
+                source="test",
+                mode="test"
+            )
+            self.ood_test_loader = DataLoader(
+                ood_test_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
+            )
+            logging.info(f"  OOD classes: {self._total_classes} ~ {self.total_classnum-1}")
+        else:
+            self.ood_test_loader = None
+            logging.info("  No OOD classes available (final task)")
+        
+        logging.info(f"  Train samples: {len(train_dataset)}")
+        logging.info(f"  ID test samples: {len(test_dataset)}")
+        if self.ood_test_loader:
+            logging.info(f"  OOD test samples: {len(ood_test_dataset)}")
+
+    def evaluate_cl_ood(self):
+        """Evaluate both CL accuracy and OOD detection performance"""
+        logging.info(f"=== Task {self._cur_task} Evaluation ===")
+        logging.info(f"Known classes: 0-{self._classes_seen_so_far-1}")
+        logging.info(f"Unknown classes: {self._classes_seen_so_far}-{self.total_classnum-1}")
+        
+        # Step 1: Standard CL accuracy evaluation
+        cnn_accy, nme_accy = self.eval_task()
+        
+        if nme_accy is not None:
+            logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: {nme_accy['top1']:.2f}%")
+        else:
+            logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: Not Available")
+        
+        # Step 2: Multiple OOD method evaluation
+        if "ood_methods" not in self.args:
+            logging.error("ood_methods not found in configuration file!")
+            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
+        
+        ood_methods = self.args["ood_methods"]
+        
+        logging.info(f"OOD Methods from JSON: {ood_methods}")
+        if self.ood_test_loader is None:
+            logging.warning("No OOD test data available. Skipping OOD evaluation.")
+            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
+        
+        ood_results = {}
+        score_distributions = {}  # Store ID/OOD scores for visualization
+        
+        logging.info("=== OOD Detection Results ===")
+        
+        for method_name in ood_methods:
+            try:
+                # Initialize OOD detector
+                if method_name == "MSP":
+                    detector = MSPDetector(self._network, self._device)
+                elif method_name == "Energy":
+                    detector = EnergyDetector(self._network, self._device)
+                elif method_name == "ODIN":
+                    detector = ODINDetector(self._network, self._device)
+                else:
+                    logging.warning(f"Unknown OOD method: {method_name}")
+                    continue
+                
+                logging.info(f"Computing {method_name} scores...")
+                
+                # Compute OOD scores
+                id_scores = detector.compute_scores(self.test_loader)      
+                ood_scores = detector.compute_scores(self.ood_test_loader) 
+                
+                # Store score distributions for visualization
+                score_distributions[method_name] = {
+                    'id_scores': id_scores.tolist() if hasattr(id_scores, 'tolist') else list(id_scores),
+                    'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores)
+                }
+                
+                # Compute OOD metrics
+                metrics = compute_ood_metrics(id_scores, ood_scores, method_name)
+                ood_results[method_name] = metrics
+                
+                # Log results
+                if 'error' not in metrics:
+                    logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%")
+                    logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
+                    logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
+                    logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
+                else:
+                    logging.error(f"{method_name}: Error - {metrics['error']}")
+                    
+            except Exception as e:
+                logging.error(f"{method_name} evaluation failed: {e}")
+                ood_results[method_name] = {'error': str(e), 'method': method_name}
+        
+        # Store results for trainer access
+        self.latest_ood_results = ood_results
+        self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
+        
+        return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}, score_distributions

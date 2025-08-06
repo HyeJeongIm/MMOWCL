@@ -1,0 +1,40 @@
+{
+  "dataset": "mydataset",
+  "modality": ["RGB", "Gyro", "Acce"],
+  "model_name": "cmr_mfn",
+  
+  "backbone": "tsn",
+  "arch": "ViT",
+  "fusion_type": "attention",
+  
+  "train_list": "mydataset_train.txt",
+  "val_list": "mydataset_test.txt",
+  "mpu_path": "./datasets/UESTC-MMEA-CL/mpu/",
+  
+  "num_segments": 8,
+  "batch_size": 8,
+  "workers": 8,
+  "dropout": 0.5,
+  
+  "lr": 0.001,
+  "lr_steps": [10, 20],
+  "momentum": 0.9,
+  "weight_decay": 0.0005,
+  "epochs": 10, 
+  "clip_gradient": 20,
+  
+  "memory_size": 2000,
+  "init_cls": 8,
+  "increment": 8,
+  "shuffle": true,
+  
+  "partialbn": true,
+  "freeze": false,
+  
+  "enable_ood": true,
+  "ood_methods": ["MSP", "ODIN", "Energy"],
+  
+  "seed": 1993,
+  "device": [0],
+  "prefix": "mmowcl"
+}
