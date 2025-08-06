@@ -4,8 +4,6 @@ Multi-Modal Open World Continual Learning (MMOWCL)
 Usage:
     python main.py -d mmea -i 0
     python main.py -d mmea -i 1
-
-    python main.py --dataset mydataset --id 1
 """
 
 import argparse

@@ -20,7 +20,7 @@ class TSN(nn.Module):
             for m in self.modality:
                 if m == 'RGB':
                     self.new_length[m] = 1
-                elif m == 'Accespec' or m == 'Gyrospec':
+                elif m == 'Acce' or m == 'Gyro':
                     self.new_length[m] = 1
         else:
             self.new_length = new_length
@@ -55,13 +55,9 @@ class TSN(nn.Module):
                 if m == "RGB":
                     self.base_model[m] = TimeSformer(img_size=224, num_classes=32, num_frames=self.num_segments, attention_type='divided_space_time',         
                                         pretrained_model='')
-                    # import ipdb; ipdb.set_trace()
-
-                    # # add
-                    # self.base_model[m].model.head = nn.Linear(768, 32)
+                
                 else:
                     self.base_model[m] = create_model(num_classes=1000)
-                    # self.base_model[m] = create_model(num_classes=32)
 
                     # (head): Linear(in_features=768, out_features=1000, bias=True)
                     self.load_pretrain(m)
@@ -83,7 +79,7 @@ class TSN(nn.Module):
         for m in self.modality:
             if (m == 'RGB'):
                 channel = 3
-            elif (m == 'Accespec' or m == 'Gyrospec'):
+            elif (m == 'Acce' or m == 'Gyro'):
                 channel = 3
 
             base_model = getattr(self, m.lower())
@@ -107,11 +103,6 @@ class TSN(nn.Module):
             map_location="cpu", check_hash=True)
         state_dict = checkpoint["model"]
         self.base_model[modality].load_state_dict(state_dict)
-        # # head 제거 - 우리는 32 클래스용 head를 새로 만들었으니까
-        # state_dict = {k: v for k, v in state_dict.items() 
-        #             if not k.startswith('head.')}
-        
-        # self.base_model[modality].load_state_dict(state_dict, strict=False)
 
     def freeze(self):
         for m in self.modality:

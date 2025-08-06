@@ -435,5 +435,8 @@ def _get_idata(dataset_name, model, modality, arch, train_list, test_list):
     name = dataset_name.lower()
     if name == "mydataset":
         return iMydataset(model, modality, arch, train_list, test_list)
+    elif name == "mmea":
+        from dataloader.data import iUESTC_MMEA_CL
+        return iUESTC_MMEA_CL(model, modality, arch, train_list, test_list)
     else:
         raise NotImplementedError("Unknown dataset {}.".format(dataset_name))

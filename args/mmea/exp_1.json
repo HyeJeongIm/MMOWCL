@@ -1,5 +1,5 @@
 {
-  "dataset": "mydataset",
+  "dataset": "mmea",
   "modality": ["RGB", "Gyro", "Acce"],
   "model_name": "cmr_mfn",
   
@@ -28,7 +28,7 @@
   "increment": 8,
   "shuffle": true,
   
-  "partialbn": true,
+  "partialbn": false,
   "freeze": false,
   
   "enable_ood": true,
