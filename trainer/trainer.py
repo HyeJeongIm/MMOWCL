@@ -7,6 +7,7 @@ import datetime
 from models.model_factory import get_model
 from utils.utils import set_random_seed, set_device
 from dataloader.data_manager import MyDataManager
+from dataloader.data_manager_T import DataManager
 from utils.result_analyzer import SimpleResultCollector
 
 def train(args):
@@ -87,7 +88,10 @@ def _train(args):
         elif m == 'Flow':
             image_tmpl[m] = args["flow_prefix"] + "{}_{:06d}.jpg"
             
-    data_manager = MyDataManager(model, image_tmpl, args)
+    if args["dataset"] == "mydataset":
+        data_manager = MyDataManager(model, image_tmpl, args)
+    else:
+        data_manager = DataManager(model, image_tmpl, args)
 
     
     # Initialize result storage
