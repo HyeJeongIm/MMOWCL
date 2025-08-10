@@ -13,14 +13,18 @@ from utils.result_analyzer import SimpleResultCollector
 def train(args):
     """Main training function with experiment setup"""
     global experiment_dir, weights_dir
-
+    # import ipdb; ipdb.set_trace()
     # Create experiment directory
     lr_str = '_'.join([str(int(s)) for s in args["lr_steps"]])
     modality_str = ''.join(args["modality"]).lower()
     suffix = args.get("experiment_suffix", "")
     experiment_name = f"{args['dataset']}_{args['arch']}_{modality_str}_" \
-                      f"lr{args['lr']}_lrst{lr_str}_dr{args['dropout']}_" \
-                      f"ep{args['epochs']}_segs{args['num_segments']}_{suffix}"
+                  f"lr{args['lr']}_lrst{lr_str}_dr{args['dropout']}_" \
+                  f"ep{args['epochs']}_segs{args['num_segments']}_" \
+                  f"mem{args['memory_size']}_inc{args['increment']}_" \
+                  f"pb{int(args['partialbn'])}_fr{int(args['freeze'])}_" \
+                  f"{suffix}"
+
 
     timestamp = datetime.datetime.now().strftime('%b%d_%H-%M-%S')
     experiment_dir = os.path.join(experiment_name, timestamp)
@@ -79,7 +83,11 @@ def _train(args):
     # Freeze batch normalisation layers except the first
     if args["partialbn"]:
         model._network.backbone.freeze_fn('partialbn_parameters')
+######################################################################################################### 일단 여기까지 체크하기 
         
+    # Freeze stream weights (leaves only fusion and classification trainable)
+    if args["freeze"]:
+        model._network.backbone.freeze()
     image_tmpl = {}
     for m in args["modality"]:
         # Prepare dictionaries containing image name templates for each modality
