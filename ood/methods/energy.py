@@ -28,14 +28,14 @@ class EnergyDetector(BaseOODDetector):
                 logits = outputs["logits"]
                 
                 # Compute energy score: -T * log(sum(exp(logits/T)))
-                energy = -self.temperature * torch.logsumexp(logits / self.temperature, dim=1)
+                energy = self.temperature * torch.logsumexp(logits / self.temperature, dim=1)
                 energy_scores.append(energy.cpu().numpy())
         
         return np.concatenate(energy_scores)
     
     def _compute_scores_from_logits(self, logits):
         """Compute Energy scores from logits"""
-        energy = -self.temperature * torch.logsumexp(logits / self.temperature, dim=1)
+        energy = self.temperature * torch.logsumexp(logits / self.temperature, dim=1)
         return energy.cpu().numpy()
 
     def compute_scores_batch(self, inputs):
