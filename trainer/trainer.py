@@ -169,17 +169,19 @@ def _log_final_summary(cl_results, ood_results, nb_tasks):
     logging.info("FINAL RESULTS SUMMARY")
     logging.info(f"{'='*60}")
     
-        # Continual Learning Performance Summary
+    # Continual Learning Performance Summary
     logging.info("CONTINUAL LEARNING PERFORMANCE:")
     # last task key
     task_key = f"task_{nb_tasks - 1}"
-    
-    final_results = cl_results[task_key]['cnn']
-    logging.info(f"  Final Results: {final_results}")
-    
-    logging.info(f"  Final Top1 Accuracy: {final_results['top1']:.2f}%")
-    if 'grouped' in final_results:
-        logging.info(f"  Final Grouped Results: {final_results['grouped']}")
+    final_cnn_results = cl_results[task_key]['cnn']
+    final_nme_results = cl_results[task_key]['nme']
+    msg_acc = f"[Final Avg] FC Acc: {final_cnn_results['top1']:.2f}%"
+    msg_grouped_acc = f"[Final Group] FC Acc: {final_cnn_results['grouped']:.2f}%"
+    if final_nme_results['top1'] is not None:
+        msg_acc += f", NME Acc: {final_nme_results['top1']:.2f}%"
+        msg_grouped_acc += f", NME Acc: {final_nme_results['grouped']:.2f}%"
+    logging.info(msg_acc)
+    logging.info(msg_grouped_acc)
     
     # OOD Detection Performance Summary
     logging.info("\nOOD DETECTION PERFORMANCE:")

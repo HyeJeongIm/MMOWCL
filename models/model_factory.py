@@ -3,9 +3,9 @@
 # ====================
 
 # Import available models
-from models.myewc import TBNEWC, TSNEWC
-from models.mylwf import TBNLwF, TSNLwF
-from models.myicarl import TBNiCaRL, TSNiCaRL
+from models.myewc import TBN_EWC, TSN_EWC
+from models.mylwf import TBN_LwF, TSN_LwF
+from models.myicarl import TBN_iCaRL, TSN_iCaRL
 from models.cmr_mfn import CMR_MFN
 
 
@@ -16,12 +16,12 @@ def get_model(model_name, args):
 
     # Dictionary mapping model names to their classes
     model_dict = {
-        "tbnewc": TBNEWC,
-        "tsnewc": TSNEWC,
-        "tbnlwf": TBNLwF,
-        "tsnlwf": TSNLwF,
-        "tbnicarl": TBNiCaRL,
-        "tsnicarl": TSNiCaRL,
+        "tbn_ewc": TBN_EWC,
+        "tsn_ewc": TSN_EWC,
+        "tbn_lwf": TBN_LwF,
+        "tsn_lwf": TSN_LwF,
+        "tbn_icarl": TBN_iCaRL,
+        "tsn_icarl": TSN_iCaRL,
         'cmr_mfn': CMR_MFN,
     }
 

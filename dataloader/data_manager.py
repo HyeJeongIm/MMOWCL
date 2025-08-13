@@ -22,7 +22,7 @@ class TBNDataManager(object):
         self.modality = args["modality"]
 
         self.dataset_name = args['dataset']
-        self._setup_data(model._network, args['modality'], args['arch'], args['train_list'], args['val_list'],
+        self._setup_data(model._network, args['modality'], args['arch'], args['train_list'], args['test_list'],
                          args['dataset'], args['shuffle'], args['seed'])
         assert args['init_cls'] <= len(self._class_order), "No enough classes."
         self._increments = [args['init_cls']]
@@ -382,7 +382,7 @@ class TSNDataManager(object):
         self.modality = args["modality"]
 
         self.dataset_name = args['dataset']
-        self._setup_data(model._network, args['modality'], args['arch'], args['train_list'], args['val_list'],
+        self._setup_data(model._network, args['modality'], args['arch'], args['train_list'], args['test_list'],
                          args['dataset'], args['shuffle'], args['seed'])
         assert args['init_cls'] <= len(self._class_order), "No enough classes."
         self._increments = [args['init_cls']]

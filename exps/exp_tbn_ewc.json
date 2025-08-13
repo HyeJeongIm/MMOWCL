@@ -1,7 +1,7 @@
 {
   "dataset": "mmea-tbn",
   "modality": ["RGB", "Gyro", "Acce"],
-  "model_name": "tbnewc",
+  "model_name": "tbn_ewc",
   
   "backbone": "tbn",
   "arch": "BNInception",
@@ -10,7 +10,7 @@
   "before_softmax": true,
   
   "train_list": "mydataset_train.txt",
-  "val_list": "mydataset_test.txt",
+  "test_list": "mydataset_test.txt",
   "mpu_path": "./data/UESTC-MMEA-CL/mpu/",
   
   "num_segments": 8,
@@ -22,11 +22,10 @@
   "lr_steps": [10, 20],
   "momentum": 0.9,
   "weight_decay": 0.0005,
-  "epochs": 50, 
+  "epochs": 10, 
   "clip_gradient": 20,
   
   "memory_size": 0,
-  "init_cls": 4,
   "increment": 4,
   "shuffle": false,
   
@@ -38,5 +37,6 @@
   
   "seed": 1993,
   "device": [0],
-  "prefix": "mmowcl"
+  "prefix": "mmea-owcl",
+  "log_test_acc": false
 }
