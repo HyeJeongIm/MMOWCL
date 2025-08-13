@@ -44,11 +44,6 @@ def main():
     args_dict = vars(args)           # argparse.Namespace → dict 변환
     config.update(args_dict)         # argparse 값이 JSON 값을 덮어씀
 
-    # init_cls
-    init_cls = config.get('init_cls', None)
-    if init_cls is None:
-        config['init_cls'] = config['increment']
-
     # Add unique_id, timestamp and host to the config
     config['run_id'] = str(uuid.uuid4()).split('-')[0]
     config['timestamp'] = str(datetime.datetime.now())
@@ -70,6 +65,12 @@ def main():
         )
         sweep_cfg = dict(wandb.config)  # W&B가 정리한 최종 설정
         config.update(sweep_cfg)        # JSON < argparse < W&B(sweep)
+    
+    # init_cls
+    init_cls = config.get('init_cls', None)
+    if init_cls is None:
+        config['init_cls'] = config['increment']
+    assert config['init_cls'] == config['increment'], "init_cls and increment need to be same"
     
     # Print experiment summary
     print("=" * 60)
