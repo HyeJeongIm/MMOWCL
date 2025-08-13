@@ -111,6 +111,11 @@ def _train(args):
         
         # Phase 2: Evaluation
         ood_results, cl_results, score_distributions = model.evaluate_cl_ood()
+        
+        task_key = f"task_{task_id}"
+        all_ood_results[task_key] = ood_results
+        all_cl_results[task_key] = cl_results
+        
         # Collect task results
         task_info = {
             'learning_classes': f"{model._known_classes}-{model._total_classes-1}",
@@ -164,10 +169,17 @@ def _log_final_summary(cl_results, ood_results, nb_tasks):
     logging.info("FINAL RESULTS SUMMARY")
     logging.info(f"{'='*60}")
     
-    # Continual Learning Performance Summary
+        # Continual Learning Performance Summary
     logging.info("CONTINUAL LEARNING PERFORMANCE:")
-    final_acc = cl_results[task_key]['cnn']['top1']
-    logging.info(f"  Final Average Accuracy: {final_acc:.2f}%")
+    # last task key
+    task_key = f"task_{nb_tasks - 1}"
+    
+    final_results = cl_results[task_key]['cnn']
+    logging.info(f"  Final Results: {final_results}")
+    
+    logging.info(f"  Final Top1 Accuracy: {final_results['top1']:.2f}%")
+    if 'grouped' in final_results:
+        logging.info(f"  Final Grouped Results: {final_results['grouped']}")
     
     # OOD Detection Performance Summary
     logging.info("\nOOD DETECTION PERFORMANCE:")
