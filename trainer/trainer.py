@@ -176,10 +176,10 @@ def _log_final_summary(cl_results, ood_results, nb_tasks):
     final_cnn_results = cl_results[task_key]['cnn']
     final_nme_results = cl_results[task_key]['nme']
     msg_acc = f"[Final Avg] FC Acc: {final_cnn_results['top1']:.2f}%"
-    msg_grouped_acc = f"[Final Group] FC Acc: {final_cnn_results['grouped']:.2f}%"
+    msg_grouped_acc = f"[Final Group] FC Acc: {final_cnn_results['grouped']}%"
     if final_nme_results['top1'] is not None:
         msg_acc += f", NME Acc: {final_nme_results['top1']:.2f}%"
-        msg_grouped_acc += f", NME Acc: {final_nme_results['grouped']:.2f}%"
+        msg_grouped_acc += f", NME Acc: {final_nme_results['grouped']}%"
     logging.info(msg_acc)
     logging.info(msg_grouped_acc)
     

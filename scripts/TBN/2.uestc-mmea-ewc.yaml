@@ -1,0 +1,29 @@
+# TBN-EWC (All) Method
+name: 'Evaluate TBN-EWC (All) Method on UESTC-MMEA-CL (All C-IL) (Seeds 1993-1997)'
+project: 'Experimental Results on the MMEA-OWCL'
+entity: 'mmea-owcl'
+
+method: grid # or random, bayes
+metric:
+  goal: maximize
+  name: Task/avg_acc
+program: main.py
+
+parameters:
+  dataset:
+    values: ['mmea-tbn']
+  train_list:
+    values: ['mydataset_total_train.txt']
+  model_name:
+    values: ['tbn_ewc']
+  workers:
+    values: [4]
+  epochs:
+    values: [50]
+  device:
+    values: [0]
+  # Hyperparameters
+  increment:
+    values: [2, 4, 8]
+  seed:
+    values: [1993, 1994, 1995, 1996, 1997]

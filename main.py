@@ -14,6 +14,7 @@ import datetime
 import uuid
 import logging
 import warnings
+import torch
 from trainer.trainer import train
 from utils.utils import shallow_merge
 
@@ -52,6 +53,7 @@ def main():
     config['run_id'] = str(uuid.uuid4()).split('-')[0]
     config['timestamp'] = str(datetime.datetime.now())
     config['host'] = socket.gethostname()
+    config['gpu_name'] = torch.cuda.get_device_name()
     config['use_wandb'] = bool(config['wandb_project'] and config['wandb_entity'] )
 
     if config['debug_mode']:
