@@ -90,9 +90,6 @@ class iUESTC_MMEA_TBN(iData):
         self.train_targets, self.test_targets = np.array(self._get_targets(train_set)), np.array(self._get_targets(test_set))
 
     def _get_targets(self, dataset):
-        """
-        get target list from MyDataset
-        """
         targets = []
         for i in range(len(dataset)):
             targets.append(dataset.video_list[i].label)
@@ -163,9 +160,6 @@ class iUESTC_MMEA_TSN(iData):
             self._get_targets(test_set))
 
     def _get_targets(self, dataset):
-        """
-        get target list from UESTC_MMEA_CL
-        """
         targets = []
         for i in range(len(dataset)):
             targets.append(dataset.video_list[i].label)

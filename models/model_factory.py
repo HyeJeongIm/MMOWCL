@@ -4,9 +4,9 @@
 
 # Import available models
 from models.myewc import TBNEWC, TSNEWC
+from models.mylwf import TBNLwF, TSNLwF
+from models.myicarl import TBNiCaRL, TSNiCaRL
 from models.cmr_mfn import CMR_MFN
-from models.myicarl import MyiCaRL
-from models.mylwf import MyLwF
 
 
 def get_model(model_name, args):
@@ -18,9 +18,11 @@ def get_model(model_name, args):
     model_dict = {
         "tbnewc": TBNEWC,
         "tsnewc": TSNEWC,
+        "tbnlwf": TBNLwF,
+        "tsnlwf": TSNLwF,
+        "tbnicarl": TBNiCaRL,
+        "tsnicarl": TSNiCaRL,
         'cmr_mfn': CMR_MFN,
-        'myicarl': MyiCaRL,
-        'mylwf': MyLwF
     }
 
     # Instantiate and return the model if name is valid

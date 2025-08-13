@@ -10,8 +10,8 @@ from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from models.base import BaseLearner
-from models.baseline_tbn import BaselineTBN
-from models.baseline_tsn import BaselineTSN
+from models.baseline_tbn import TBNBaseline
+from models.baseline_tsn import TSNBaseline
 from utils.toolkit import tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
@@ -559,3 +559,19 @@ def _KD_loss(pred, soft, T):
     pred = torch.log_softmax(pred / T, dim=1)
     soft = torch.softmax(soft / T, dim=1)
     return -1 * torch.mul(soft, pred).sum() / pred.shape[0]
+
+
+class TBNiCaRL(MyiCaRL):
+    """MyEWC model with additional features for TBN"""
+    
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = TBNBaseline(args)  # Assuming TBN is a custom network class
+    
+
+class TSNiCaRL(MyiCaRL):
+    """MyEWC model with additional features for TSN"""
+    
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = TSNBaseline(args)  # Assuming TSN is a custom network class

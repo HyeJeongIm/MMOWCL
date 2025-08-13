@@ -5,13 +5,12 @@ import torch
 from torch import nn
 from torch.nn.init import normal_, constant_
 
-
-class ClassificationTSN(nn.Module):
+class TSNClassification(nn.Module):
     """
-    B버전 (CMR_MFN, TSN) 전용 Classification Network
-    - gen_train_fc 방식 사용
-    - 간단한 구조 (dropout + linear)
-    - ConsensusModule 없음
+    Classification Network for TSN
+    - Uses gen_train_fc method
+    - Simple structure (dropout + linear)
+    - No ConsensusModule
     """
     def __init__(self, feature_dim, modality, num_class, dropout, num_segments):
         super().__init__()

@@ -8,8 +8,8 @@ from tqdm import tqdm
 import wandb
 
 from models.base import BaseLearner
-from models.baseline_tbn import BaselineTBN
-from models.baseline_tsn import BaselineTSN
+from models.baseline_tbn import TBNBaseline
+from models.baseline_tsn import TSNBaseline
 from utils.toolkit import target2onehot, tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
@@ -506,7 +506,7 @@ class TBNEWC(MyEWC):
     
     def __init__(self, args):
         super().__init__(args)
-        self._network = BaselineTBN(args)  # Assuming TBN is a custom network class
+        self._network = TBNBaseline(args)  # Assuming TBN is a custom network class
     
 
 class TSNEWC(MyEWC):
@@ -514,4 +514,4 @@ class TSNEWC(MyEWC):
     
     def __init__(self, args):
         super().__init__(args)
-        self._network = BaselineTSN(args)  # Assuming TSN is a custom network class
+        self._network = TSNBaseline(args)  # Assuming TSN is a custom network class

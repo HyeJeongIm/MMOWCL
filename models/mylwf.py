@@ -7,8 +7,9 @@ from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
-from models.baseline_tbn import BaselineTBN
 from models.base import BaseLearner
+from models.baseline_tbn import TBNBaseline
+from models.baseline_tsn import TSNBaseline
 from utils.toolkit import target2onehot, tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
@@ -35,7 +36,7 @@ class MyLwF(BaseLearner):
         self._freeze = args["freeze"]
         self._clip_gradient = args["clip_gradient"]
 
-        self._network = BaselineTBN(args)
+        self._network = None # Placeholder for the network
         self.class_increments = []
         
     def after_task(self):
@@ -405,3 +406,20 @@ def _KD_loss(pred, soft, T):
     pred = torch.log_softmax(pred / T, dim=1)
     soft = torch.softmax(soft / T, dim=1)
     return -1 * torch.mul(soft, pred).sum() / pred.shape[0]
+
+
+class TBNLwF(MyLwF):
+    """MyLwF model with additional features for TBN"""
+    
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = TBNBaseline(args)  # Assuming TBN is a custom network class
+    
+
+class TSNLwF(MyLwF):
+    """MyLwF model with additional features for TSN"""
+    
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = TSNBaseline(args)  # Assuming TSN is a custom network class
+

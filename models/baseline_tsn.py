@@ -1,6 +1,3 @@
-# models/baseline_cmr.py
-# B버전 (CMR_MFN, TSN) 전용 Baseline Network
-
 import torch
 import torch.nn as nn
 import copy
@@ -8,15 +5,14 @@ import logging
 
 from models.backbones import get_backbone
 from models.fusion import get_fusion
-from models.classifier.classification_tsn import ClassificationTSN
+from models.classifier.classification_tsn import TSNClassification
 
-
-class BaselineTSN(nn.Module):
+class TSNBaseline(nn.Module):
     """
-    B버전 (CMR_MFN, TSN) 전용 Multi-modal baseline network
-    - gen_train_fc 방식 사용
-    - fusion_networks, fc_list로 태스크별 파라미터 저장
-    - CMR_MFNNet과 동일한 구조
+    TSN-based multi-modal baseline network
+    - Uses gen_train_fc method
+    - Stores task-specific parameters in fusion_networks and fc_list
+    - Shares the same structure as CMR_MFNNet
     """
     
     def __init__(self, args):
@@ -29,7 +25,6 @@ class BaselineTSN(nn.Module):
         self.fusion_type = args["fusion_type"]  # e.g., 'attention', 'concat'
         self.dropout = args["dropout"]
 
-        # B버전: 태스크별 파라미터 저장을 위한 리스트
         self.fusion_networks = nn.ModuleList()
         self.fc_list = nn.ModuleList()
         self.fc = None  # Current classifier
@@ -112,10 +107,10 @@ class BaselineTSN(nn.Module):
 
     def gen_train_fc(self, incre_classes):
         """
-        B버전: gen_train_fc 방식으로 classifier 생성/확장
+        Generates or extends a classifier using the gen_train_fc method for TSN
         """
         # Create new classifier
-        new_fc = ClassificationTSN(
+        new_fc = TSNClassification(
             feature_dim=self.feature_dim,
             modality=self.modality,
             num_class=incre_classes,
@@ -134,7 +129,7 @@ class BaselineTSN(nn.Module):
 
     def save_parameter(self):
         """
-        현재 태스크의 파라미터를 리스트에 저장
+        Saves the current task's parameters to a list
         """
         # Save current fusion network
         new_fusion = get_fusion(
@@ -149,7 +144,7 @@ class BaselineTSN(nn.Module):
 
         # Save current classifier
         if self.fc is not None:
-            new_fc = ClassificationTSN(
+            new_fc = TSNClassification(
                 feature_dim=self.feature_dim,
                 modality=self.modality,
                 num_class=self.fc.num_class,

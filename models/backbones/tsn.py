@@ -59,7 +59,6 @@ class TSN(nn.Module):
                 else:
                     self.base_model[m] = create_model(num_classes=1000)
 
-                    # (head): Linear(in_features=768, out_features=1000, bias=True)
                     self.load_pretrain(m)
 
                 self.input_size[m] = 224
@@ -98,7 +97,6 @@ class TSN(nn.Module):
     def load_pretrain(self, modality):
         checkpoint = torch.hub.load_state_dict_from_url(
             url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
-            # model_dir='/data1/whx/PyCIL-ViT/pretrain',
             model_dir='./pretrain',  # 현재 디렉토리의 pretrain 폴더 사용
             map_location="cpu", check_hash=True)
         state_dict = checkpoint["model"]
