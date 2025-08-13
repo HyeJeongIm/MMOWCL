@@ -27,19 +27,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dataset', type=str, required=True)
     parser.add_argument('-m', '--model_name', type=str, required=True)
-    parser.add_argument('--wandb_project', type=str, default='MMEA-OWCL')
+    parser.add_argument('-i', '--increment', type=int, choices=[2, 4, 8], required=True)
+    parser.add_argument('--mem_size', type=int, choices=[0, 150, 320], required=True)
+    parser.add_argument('--wandb_project', type=str, default='MMEA-OWCL_hj_test')
     parser.add_argument('--wandb_entity', type=str, default='mmea-owcl')
     parser.add_argument('--debug_mode', action='store_true', help='Enable debug mode with reduced steps and no W&B logging')
     args, _ = parser.parse_known_args()
 
-    # Load config file from args/{dataset}/exp_{id}.json
-    config_path = os.path.join("exps", args.dataset, f"exp_{args.model_name}.json")
+    config_path = os.path.join("exps", args.dataset, f"exp_{args.model_name}_{args.increment}c_{args.mem_size}m.json")
+    
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
     with open(config_path, 'r') as f:
         config = json.load(f)
 
-    # argparse 값 병합 (JSON < argparse)
     args_dict = vars(args)           # argparse.Namespace → dict 변환
     config.update(args_dict)         # argparse 값이 JSON 값을 덮어씀
 
@@ -64,7 +65,6 @@ def main():
         sweep_cfg = dict(wandb.config)  # W&B가 정리한 최종 설정
         config.update(sweep_cfg)        # JSON < argparse < W&B(sweep)
     
-    
     # Print experiment summary
     print("=" * 60)
     print("🚀 Multi-Modal Open World Continual Learning")
@@ -78,6 +78,7 @@ def main():
 
     # Start training
     train(config)
+
 
 if __name__ == '__main__':
     main()
