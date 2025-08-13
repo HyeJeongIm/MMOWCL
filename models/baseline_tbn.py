@@ -6,10 +6,10 @@ import copy
 
 from models.backbones import get_backbone
 from models.fusion import get_fusion
-from models.classifier.classifier import Classification_Network
+from models.classifier.classification_tbn import ClassificationTBN
 
 
-class Baseline(nn.Module):
+class BaselineTBN(nn.Module):
     """Multi-modal baseline network with backbone, fusion, and classifier"""
     
     def __init__(self, args):
@@ -75,7 +75,7 @@ class Baseline(nn.Module):
     def update_fc(self, nb_classes):
         """Update classifier for new number of classes while preserving weights"""
         # Create new classifier with updated class count
-        new_fc = Classification_Network(
+        new_fc = ClassificationTBN(
             feature_dim=self.feature_dim,
             modality=self.modality,
             num_class=nb_classes,

@@ -7,11 +7,12 @@ from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
-from models.baseline import Baseline
+from models.baseline_tbn import BaselineTBN
 from models.base import BaseLearner
 from utils.toolkit import target2onehot, tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
+
 
 T = 2
 lamda = 1
@@ -34,7 +35,7 @@ class MyLwF(BaseLearner):
         self._freeze = args["freeze"]
         self._clip_gradient = args["clip_gradient"]
 
-        self._network = Baseline(args)
+        self._network = BaselineTBN(args)
         self.class_increments = []
         
     def after_task(self):

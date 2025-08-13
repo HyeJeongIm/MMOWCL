@@ -3,10 +3,11 @@
 # ====================
 
 # Import available models
-from models.myewc import MyEWC
+from models.myewc import TBNEWC, TSNEWC
 from models.cmr_mfn import CMR_MFN
 from models.myicarl import MyiCaRL
 from models.mylwf import MyLwF
+
 
 def get_model(model_name, args):
     """Return model instance by name."""
@@ -15,7 +16,8 @@ def get_model(model_name, args):
 
     # Dictionary mapping model names to their classes
     model_dict = {
-        "myewc": MyEWC,
+        "tbnewc": TBNEWC,
+        "tsnewc": TSNEWC,
         'cmr_mfn': CMR_MFN,
         'myicarl': MyiCaRL,
         'mylwf': MyLwF

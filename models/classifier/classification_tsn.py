@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn.init import normal_, constant_
 
 
-class ClassificationCMR(nn.Module):
+class ClassificationTSN(nn.Module):
     """
     B버전 (CMR_MFN, TSN) 전용 Classification Network
     - gen_train_fc 방식 사용

@@ -5,12 +5,15 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import wandb
 
 from models.base import BaseLearner
-from models.baseline import Baseline
+from models.baseline_tbn import BaselineTBN
+from models.baseline_tsn import BaselineTSN
 from utils.toolkit import target2onehot, tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
+
 
 # EWC hyperparameters
 EPSILON = 1e-8
@@ -38,7 +41,7 @@ class MyEWC(BaseLearner):
         self._clip_gradient = args["clip_gradient"]
 
         self.fisher = None
-        self._network = Baseline(args)
+        self._network = None # Placeholder for the network
         self.class_increments = []
         
     def after_task(self):
@@ -200,6 +203,13 @@ class MyEWC(BaseLearner):
 
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
 
+            # Log training metrics to W&B
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": losses / len(train_loader),
+                "train_accuracy": train_acc
+            })
+
             if epoch % 5 == 0:
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
                     self._cur_task,
@@ -218,6 +228,11 @@ class MyEWC(BaseLearner):
                     train_acc,
                     test_acc,
                 )
+                # Log test metrics to W&B
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "test_accuracy": test_acc
+                })
             prog_bar.set_description(info)
 
         logging.info(info)
@@ -277,6 +292,14 @@ class MyEWC(BaseLearner):
                 scheduler.step()
 
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+
+            # Log training metrics to W&B
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": losses / len(train_loader),
+                "train_accuracy": train_acc
+            })
+
             if epoch % 5 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
@@ -295,6 +318,11 @@ class MyEWC(BaseLearner):
                     losses / len(train_loader),
                     train_acc,
                 )
+                # Log test metrics to W&B
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "test_accuracy": test_acc
+                })
             prog_bar.set_description(info)
         logging.info(info)
 
@@ -396,7 +424,12 @@ class MyEWC(BaseLearner):
             logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: {nme_accy['top1']:.2f}%")
         else:
             logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: Not Available")
-        
+        # Log task metrics to W&B
+        wandb.log({
+            "task": self._cur_task,
+            "cl_accuracy": cnn_accy['top1']
+        })
+
         # Step 2: Multiple OOD method evaluation
         if "ood_methods" not in self.args:
             logging.error("ood_methods not found in configuration file!")
@@ -449,6 +482,11 @@ class MyEWC(BaseLearner):
                     logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
                     logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
                     logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
+                    # Log OOD metrics to W&B
+                    wandb.log({
+                        f"{method_name}_auroc": metrics['auroc'],
+                        f"{method_name}_fpr95": metrics['fpr95']
+                    })
                 else:
                     logging.error(f"{method_name}: Error - {metrics['error']}")
                     
@@ -461,3 +499,19 @@ class MyEWC(BaseLearner):
         self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
         
         return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}, score_distributions
+    
+
+class TBNEWC(MyEWC):
+    """MyEWC model with additional features for TBN"""
+    
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = BaselineTBN(args)  # Assuming TBN is a custom network class
+    
+
+class TSNEWC(MyEWC):
+    """MyEWC model with additional features for TSN"""
+    
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = BaselineTSN(args)  # Assuming TSN is a custom network class

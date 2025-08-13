@@ -6,9 +6,9 @@ import datetime
 
 from models.model_factory import get_model
 from utils.utils import set_random_seed, set_device
-from dataloader.data_manager import MyDataManager
-from dataloader.data_manager_T import DataManager
+from dataloader.data_manager import TBNDataManager, TSNDataManager
 from utils.result_analyzer import SimpleResultCollector
+
 
 def train(args):
     """Main training function with experiment setup"""
@@ -25,7 +25,6 @@ def train(args):
                   f"pb{int(args['partialbn'])}_fr{int(args['freeze'])}_" \
                   f"{suffix}"
 
-
     timestamp = datetime.datetime.now().strftime('%b%d_%H-%M-%S')
     experiment_dir = os.path.join(experiment_name, timestamp)
     weights_dir = os.path.join("weights", experiment_dir)
@@ -35,15 +34,8 @@ def train(args):
     print(f"✓ Model weights will be saved to: {weights_dir}")
     
     # Run training for each seed
-    seeds = args["seed"] if isinstance(args["seed"], list) else [args["seed"]]
-    device = copy.deepcopy(args["device"])
-    
-    for seed in seeds:
-        args["seed"] = seed
-        args["device"] = device
-        _train(args)
-        
-        
+    _train(args)
+             
 
 def _train(args):
     """Core OWCL training loop"""
@@ -75,7 +67,6 @@ def _train(args):
     with open(os.path.join(log_dir, "args.txt"), "w") as f:
         f.write(str(args))
   
-    
     # Initialize multi-modal OWCL model
     model = get_model(args["model_name"], args)
     
@@ -83,7 +74,7 @@ def _train(args):
     # Freeze batch normalisation layers except the first
     if args["partialbn"]:
         model._network.backbone.freeze_fn('partialbn_parameters')
-######################################################################################################### 일단 여기까지 체크하기 
+    ######################################################################################################### 일단 여기까지 체크하기 
         
     # Freeze stream weights (leaves only fusion and classification trainable)
     if args["freeze"]:
@@ -96,11 +87,12 @@ def _train(args):
         elif m == 'Flow':
             image_tmpl[m] = args["flow_prefix"] + "{}_{:06d}.jpg"
             
-    if args["dataset"] == "mydataset":
-        data_manager = MyDataManager(model, image_tmpl, args)
+    if args["dataset"] == "mmea-tbn":
+        data_manager = TBNDataManager(model, image_tmpl, args)
+    elif args["dataset"] == "mmea-tsn":
+        data_manager = TSNDataManager(model, image_tmpl, args)
     else:
-        data_manager = DataManager(model, image_tmpl, args)
-
+        raise NotImplementedError(f"Unknown dataset {args['dataset']}.")
     
     # Initialize result storage
     all_ood_results = {}  # Store OOD results for each task
@@ -145,7 +137,6 @@ def _train(args):
         # Phase 3: Update model state
         model.after_task()
 
-        
         # Save checkpoint
         try:
             model.save_checkpoint(weights_dir, f"task_{task_id}_checkpoint")
@@ -165,7 +156,8 @@ def _train(args):
     # Final summary
     _log_final_summary(all_cl_results, all_ood_results, data_manager.nb_tasks)
     # import ipdb; ipdb.set_trace()
-    
+
+
 def _log_final_summary(cl_results, ood_results, nb_tasks):
     """Log comprehensive final results summary"""
     logging.info(f"\n{'='*60}")
@@ -174,16 +166,8 @@ def _log_final_summary(cl_results, ood_results, nb_tasks):
     
     # Continual Learning Performance Summary
     logging.info("CONTINUAL LEARNING PERFORMANCE:")
-    avg_accuracy = 0
-    for task_id in range(nb_tasks):
-        task_key = f"task_{task_id}"
-        if task_key in cl_results:
-            acc = cl_results[task_key]['cnn']['top1']
-            avg_accuracy += acc
-            logging.info(f"  Task {task_id + 1}: {acc:.2f}%")
-    
-    avg_accuracy /= nb_tasks
-    logging.info(f"  Average Accuracy: {avg_accuracy:.2f}%")
+    final_acc = cl_results[task_key]['cnn']['top1']
+    logging.info(f"  Final Average Accuracy: {final_acc:.2f}%")
     
     # OOD Detection Performance Summary
     logging.info("\nOOD DETECTION PERFORMANCE:")

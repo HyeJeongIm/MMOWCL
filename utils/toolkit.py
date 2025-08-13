@@ -1,18 +1,22 @@
 import numpy as np
 import torch
 
+
 def count_parameters(model, trainable=False):
     if trainable:
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
     return sum(p.numel() for p in model.parameters())
 
+
 def tensor2numpy(x):
     return x.cpu().data.numpy() if x.is_cuda else x.data.numpy()
+
 
 def target2onehot(targets, n_classes):
     onehot = torch.zeros(targets.shape[0], n_classes).to(targets.device)
     onehot.scatter_(dim=1, index=targets.long().view(-1, 1), value=1.0)
     return onehot
+
 
 def accuracy(y_pred, y_true, nb_old, class_increments):
     assert len(y_pred) == len(y_true), "Data length error."
@@ -40,7 +44,7 @@ def accuracy(y_pred, y_true, nb_old, class_increments):
         "02-04": 66.67
     }
     '''
-    return acc_total,all_acc
+    return acc_total, all_acc
 
 
 def split_images_labels(imgs):

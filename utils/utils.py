@@ -2,6 +2,7 @@ import torch
 import random
 import numpy as np
 
+
 def set_random_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -35,6 +36,15 @@ def set_device(device_ids):
     
     return devices
 
+
 def print_args(args):
     for k, v in args.items():
         print(f"{k}: {v}")
+
+
+def shallow_merge(base: dict, override: dict) -> dict:
+    """Shallowly overwrite base with override values."""
+    out = dict(base)
+    for k, v in (override or {}).items():
+        out[k] = v
+    return out

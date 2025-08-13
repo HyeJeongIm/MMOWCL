@@ -10,11 +10,12 @@ from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from models.base import BaseLearner
-from models.baseline import Baseline
+from models.baseline_tbn import BaselineTBN
+from models.baseline_tsn import BaselineTSN
 from utils.toolkit import tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
-from models.baseline_cmr import BaselineCMR
+
 
 EPSILON = 1e-8
 T = 2
@@ -39,7 +40,7 @@ class MyiCaRL(BaseLearner):
         self._freeze = args["freeze"]
         self._clip_gradient = args["clip_gradient"]
         
-        self._network = BaselineCMR(args)
+        self._network = None # Placeholder for the network
         self.class_increments = []
 
 
@@ -415,6 +416,8 @@ class MyiCaRL(BaseLearner):
             # Select
             selected_exemplars = []
             exemplar_vectors = []  # [n, feature_dim]
+
+            m = min(m, vectors.shape[0])
             for k in range(1, m + 1):
                 S = np.sum(
                     exemplar_vectors, axis=0
@@ -467,7 +470,7 @@ class MyiCaRL(BaseLearner):
             mean = mean / np.linalg.norm(mean)
             
             self._class_means[class_idx, :] = mean
-    
+
     def evaluate_cl_ood(self):
         """Evaluate both CL accuracy and OOD detection performance"""
         logging.info(f"=== Task {self._cur_task} Evaluation ===")

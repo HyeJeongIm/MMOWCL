@@ -2,7 +2,7 @@ from torch import nn
 from torch.nn.init import normal_, constant_
 from ops.basic_ops import ConsensusModule
 
-class Classification_Network(nn.Module):
+class ClassificationTBN(nn.Module):
     def __init__(self, feature_dim, modality, num_class,
                  consensus_type, before_softmax, num_segments):
         super().__init__()

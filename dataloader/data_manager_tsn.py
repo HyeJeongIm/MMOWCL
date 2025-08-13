@@ -5,14 +5,14 @@ from PIL import Image
 from scipy import signal
 from scipy.integrate import trapz
 from torch.utils.data import Dataset
-from dataloader.data import iUESTC_MMEA_CL 
+from dataloader.data import iUESTC_MMEA_TSN
 import os
 import os.path
 import pandas as pd
 from numpy.random import randint
 
 
-class DataManager(object):
+class TSNDataManager(object):
     def __init__(self, model, image_tmpl, args):
         self.new_length = model._network.backbone.new_length
         self.image_tmpl = image_tmpl
@@ -42,7 +42,7 @@ class DataManager(object):
         return len(self._class_order)
 
     def get_dataset(
-            self, indices, source, mode, appendent=None, ret_data=False, m_rate=None
+        self, indices, source, mode, appendent=None, ret_data=False, m_rate=None
     ):
         if source == "train":
             x, y = self._train_data, self._train_targets
@@ -86,6 +86,7 @@ class DataManager(object):
             return DummyDataset(data, targets, self.modality,
                                 trsf, self.new_length, self.image_tmpl,
                                 self.mup_path, self.num_segments, mode)
+
     def get_finetune_dataset(
             self, indices, source, mode, appendent=None, ret_data=False, m_rate=None
     ):
@@ -132,6 +133,8 @@ class DataManager(object):
             return DummyDataset(data, targets, self.modality,
                                 trsf, self.new_length, self.image_tmpl,
                                 self.mup_path, self.num_segments, mode)
+
+
     def _setup_data(self, model, modality, arch, train_list, test_list, dataset_name, shuffle, seed):
         idata = _get_idata(dataset_name, model, modality, arch, train_list, test_list)
         idata.download_data()
@@ -359,7 +362,4 @@ def _map_new_class_index(y, order):
 
 def _get_idata(dataset_name, model, modality, arch, train_list, test_list):
     name = dataset_name.lower()
-    if name == "mmea":
-        return iUESTC_MMEA_CL(model, modality, arch, train_list, test_list)
-    else:
-        raise NotImplementedError("Unknown dataset {}.".format(dataset_name))
+    return iUESTC_MMEA_TSN(model, modality, arch, train_list, test_list)

@@ -7,10 +7,11 @@ from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from models.base import BaseLearner
-from models.baseline_cmr import BaselineCMR
+from models.baseline_tsn import BaselineTSN
 from utils.toolkit import count_parameters, tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
+
 
 EPSILON = 1e-8
 T = 2
@@ -31,7 +32,7 @@ class CMR_MFN(BaseLearner):
         self._freeze = args["freeze"]
         self._clip_gradient = args["clip_gradient"]
 
-        self._network = BaselineCMR(args)
+        self._network = BaselineTSN(args)
         
         # OOD related attributes
         self.args = args

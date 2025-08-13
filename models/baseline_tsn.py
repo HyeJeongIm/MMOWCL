@@ -8,12 +8,10 @@ import logging
 
 from models.backbones import get_backbone
 from models.fusion import get_fusion
-
-from models.fusion.fusion_cmr import FusionCMR
-from models.classifier.classification_cmr import ClassificationCMR
+from models.classifier.classification_tsn import ClassificationTSN
 
 
-class BaselineCMR(nn.Module):
+class BaselineTSN(nn.Module):
     """
     B버전 (CMR_MFN, TSN) 전용 Multi-modal baseline network
     - gen_train_fc 방식 사용
@@ -58,14 +56,14 @@ class BaselineCMR(nn.Module):
             self.feature_dim = 768
 
         logging.info(f"""
-Initializing BaselineCMR with backbone: {self.backbone_name}.
-CMR Configurations:
-    input_modality:     {self.modality}
-    num_segments:       {self.num_segments}
-    fusion_type:        {self.fusion_type}
-    dropout_ratio:      {self.dropout}
-    feature_dim:        {self.feature_dim}
-""")
+            Initializing BaselineCMR with backbone: {self.backbone_name}.
+            CMR Configurations:
+                input_modality:     {self.modality}
+                num_segments:       {self.num_segments}
+                fusion_type:        {self.fusion_type}
+                dropout_ratio:      {self.dropout}
+                feature_dim:        {self.feature_dim}
+        """)
 
     @property
     def output_dim(self):
@@ -117,7 +115,7 @@ CMR Configurations:
         B버전: gen_train_fc 방식으로 classifier 생성/확장
         """
         # Create new classifier
-        new_fc = ClassificationCMR(
+        new_fc = ClassificationTSN(
             feature_dim=self.feature_dim,
             modality=self.modality,
             num_class=incre_classes,
@@ -151,7 +149,7 @@ CMR Configurations:
 
         # Save current classifier
         if self.fc is not None:
-            new_fc = ClassificationCMR(
+            new_fc = ClassificationTSN(
                 feature_dim=self.feature_dim,
                 modality=self.modality,
                 num_class=self.fc.num_class,
