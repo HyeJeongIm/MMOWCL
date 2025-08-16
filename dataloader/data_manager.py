@@ -17,7 +17,7 @@ class TBNDataManager(object):
     def __init__(self, model, image_tmpl, args):
         self.new_length = model._network.backbone.new_length
         self.image_tmpl = image_tmpl
-        self.mup_path = args["mpu_path"]
+        self.mpu_path = args["mpu_path"]
         self.num_segments = args["num_segments"]
         self.modality = args["modality"]
 
@@ -82,11 +82,11 @@ class TBNDataManager(object):
         if ret_data:
             return data, targets, TBNDummyDataset(data, targets, self.modality,
                                                trsf, self.new_length, self.image_tmpl,
-                                               self.mup_path, self.num_segments, mode)
+                                               self.mpu_path, self.num_segments, mode)
         else:
             return TBNDummyDataset(data, targets, self.modality,
                                 trsf, self.new_length, self.image_tmpl,
-                                self.mup_path, self.num_segments, mode)
+                                self.mpu_path, self.num_segments, mode)
 
     def _setup_data(self, model, modality, arch, train_list, test_list, dataset_name, shuffle, seed):
         idata = _get_idata(dataset_name, model, modality, arch, train_list, test_list)
@@ -377,7 +377,7 @@ class TSNDataManager(object):
     def __init__(self, model, image_tmpl, args):
         self.new_length = model._network.backbone.new_length
         self.image_tmpl = image_tmpl
-        self.mup_path = args["mpu_path"]
+        self.mpu_path = args["mpu_path"]
         self.num_segments = args["num_segments"]
         self.modality = args["modality"]
 
@@ -442,11 +442,11 @@ class TSNDataManager(object):
         if ret_data:
             return data, targets, TSNDummyDataset(data, targets, self.modality,
                                                trsf, self.new_length, self.image_tmpl,
-                                               self.mup_path, self.num_segments, mode)
+                                               self.mpu_path, self.num_segments, mode)
         else:
             return TSNDummyDataset(data, targets, self.modality,
                                 trsf, self.new_length, self.image_tmpl,
-                                self.mup_path, self.num_segments, mode)
+                                self.mpu_path, self.num_segments, mode)
 
     def get_finetune_dataset(
             self, indices, source, mode, appendent=None, ret_data=False, m_rate=None
@@ -489,11 +489,11 @@ class TSNDataManager(object):
         if ret_data:
             return data, targets, TSNDummyDataset(data, targets, self.modality,
                                                trsf, self.new_length, self.image_tmpl,
-                                               self.mup_path, self.num_segments, mode)
+                                               self.mpu_path, self.num_segments, mode)
         else:
             return TSNDummyDataset(data, targets, self.modality,
                                 trsf, self.new_length, self.image_tmpl,
-                                self.mup_path, self.num_segments, mode)
+                                self.mpu_path, self.num_segments, mode)
 
 
     def _setup_data(self, model, modality, arch, train_list, test_list, dataset_name, shuffle, seed):
