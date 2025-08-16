@@ -1,5 +1,7 @@
+import copy
 import logging
 import numpy as np
+import random
 from tqdm import tqdm
 import torch
 from torch import nn
@@ -11,13 +13,14 @@ from models.baseline_tsn import TSNBaseline
 from utils.toolkit import count_parameters, tensor2numpy
 from ood import MSPDetector, EnergyDetector, ODINDetector
 from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
+from models.mmeabase import MMEABaseLearner
 
 
 EPSILON = 1e-8
 T = 2
 
 
-class CMR_MFN(BaseLearner):
+class CMR_MFN(MMEABaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self._batch_size = args["batch_size"]
@@ -78,6 +81,8 @@ class CMR_MFN(BaseLearner):
         # Setup data loaders with OOD support
         self._setup_data_loaders_with_ood(data_manager)
         self._train(self.train_loader, self.test_loader)
+        self.build_rehearsal_memory(data_manager, self.samples_per_class)
+
 
     def train(self):
         self._network.train()
@@ -210,7 +215,8 @@ class CMR_MFN(BaseLearner):
         logging.info(info)
 
     def _eval_cnn(self, loader):
-        self._network.to(self._device)
+        self._network.fusion_networks.to(self._device)
+        self._network.fc_list.to(self._device)
         self._network.eval()
         y_pred, y_true = [], []
         results = []
@@ -218,7 +224,6 @@ class CMR_MFN(BaseLearner):
             for m in self._modality:
                 inputs[m] = inputs[m].to(self._device)
             with torch.no_grad():
-                # B버전: test 모드로 evaluation (모든 태스크 결합)
                 outputs = self._network(inputs, self._cur_task_size, mode='test')
                 logits = outputs["logits"]
             predicts = torch.topk(
@@ -229,27 +234,15 @@ class CMR_MFN(BaseLearner):
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
 
-            # Store results for analysis - handle multi-modal features
-            feature_dict = {}
-            if isinstance(outputs['features'], dict):
-                for m in self._modality:
-                    feature_dict[m] = outputs['features'][m].cpu().numpy()
-            else:
-                feature_dict = outputs['features'].cpu().numpy()
-                
-            results.append({
-                'features': feature_dict,
-                'fusion_features': outputs['fusion_features'].cpu().numpy(),
-                'logits': logits.cpu().numpy()
-            })
+            results.append({'features': {m: outputs['features'][m].cpu().numpy() for m in self._modality},
+                            'fusion_features': outputs['fusion_features'].cpu().numpy(),
+                            'logits': logits.cpu().numpy()})
 
         return np.concatenate(y_pred), np.concatenate(y_true), results  # [N, topk]
 
-    # # def eval_task(self, scores_dir):
-    # #     y_pred, y_true, results = self._eval_cnn(self.test_loader)
-    # #     self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
-    def eval_task(self):
+    def eval_task(self, scores_dir):
         y_pred, y_true, results = self._eval_cnn(self.test_loader)
+        self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
         cnn_accy = self._evaluate(y_pred, y_true)
 
         if hasattr(self, "_class_means"):
@@ -325,127 +318,3 @@ class CMR_MFN(BaseLearner):
             targets = torch.cat([targets, mixup_targets], dim=0)
 
         return inputs, targets
-
-    def _setup_data_loaders_with_ood(self, data_manager):
-        """Setup train/test/ood data loaders"""
-        logging.info(f"Setting up data loaders for Task {self._cur_task}")
-        
-        # Training data: current task classes only
-        train_dataset = data_manager.get_dataset(
-            np.arange(self._known_classes, self._total_classes),
-            source="train",
-            mode="train",
-            appendent=self._get_memory(),
-        )
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=self._batch_size, shuffle=True, num_workers=self._num_workers
-        )
-        
-        # Test data: all seen classes so far  
-        test_dataset = data_manager.get_dataset(
-            np.arange(0, self._total_classes), 
-            source="test", 
-            mode="test"
-        )
-        self.test_loader = DataLoader(
-            test_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
-        )
-        
-        # OOD test data: unseen classes
-        if self._total_classes < self.total_classnum:
-            ood_test_dataset = data_manager.get_dataset(
-                np.arange(self._total_classes, self.total_classnum),
-                source="test",
-                mode="test"
-            )
-            self.ood_test_loader = DataLoader(
-                ood_test_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
-            )
-            logging.info(f"  OOD classes: {self._total_classes} ~ {self.total_classnum-1}")
-        else:
-            self.ood_test_loader = None
-            logging.info("  No OOD classes available (final task)")
-        
-        logging.info(f"  Train samples: {len(train_dataset)}")
-        logging.info(f"  ID test samples: {len(test_dataset)}")
-        if self.ood_test_loader:
-            logging.info(f"  OOD test samples: {len(ood_test_dataset)}")
-
-    def evaluate_cl_ood(self):
-        """Evaluate both CL accuracy and OOD detection performance"""
-        logging.info(f"=== Task {self._cur_task} Evaluation ===")
-        logging.info(f"Known classes: 0-{self._classes_seen_so_far-1}")
-        logging.info(f"Unknown classes: {self._classes_seen_so_far}-{self.total_classnum-1}")
-        
-        # Step 1: Standard CL accuracy evaluation
-        cnn_accy, nme_accy = self.eval_task()
-        
-        if nme_accy is not None:
-            logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: {nme_accy['top1']:.2f}%")
-        else:
-            logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: Not Available")
-        
-        # Step 2: Multiple OOD method evaluation
-        if "ood_methods" not in self.args:
-            logging.error("ood_methods not found in configuration file!")
-            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
-        
-        ood_methods = self.args["ood_methods"]
-        
-        logging.info(f"OOD Methods from JSON: {ood_methods}")
-        if self.ood_test_loader is None:
-            logging.warning("No OOD test data available. Skipping OOD evaluation.")
-            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
-        
-        ood_results = {}
-        score_distributions = {}  # Store ID/OOD scores for visualization
-        
-        logging.info("=== OOD Detection Results ===")
-        
-        for method_name in ood_methods:
-            try:
-                # Initialize OOD detector
-                if method_name == "MSP":
-                    detector = MSPDetector(self._network, self._device)
-                elif method_name == "Energy":
-                    detector = EnergyDetector(self._network, self._device)
-                elif method_name == "ODIN":
-                    detector = ODINDetector(self._network, self._device)
-                else:
-                    logging.warning(f"Unknown OOD method: {method_name}")
-                    continue
-                
-                logging.info(f"Computing {method_name} scores...")
-                
-                # Compute OOD scores
-                id_scores = detector.compute_scores(self.test_loader)      
-                ood_scores = detector.compute_scores(self.ood_test_loader) 
-                
-                # Store score distributions for visualization
-                score_distributions[method_name] = {
-                    'id_scores': id_scores.tolist() if hasattr(id_scores, 'tolist') else list(id_scores),
-                    'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores)
-                }
-                
-                # Compute OOD metrics
-                metrics = compute_ood_metrics(id_scores, ood_scores, method_name)
-                ood_results[method_name] = metrics
-                
-                # Log results
-                if 'error' not in metrics:
-                    logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%")
-                    logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
-                    logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
-                    logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
-                else:
-                    logging.error(f"{method_name}: Error - {metrics['error']}")
-                    
-            except Exception as e:
-                logging.error(f"{method_name} evaluation failed: {e}")
-                ood_results[method_name] = {'error': str(e), 'method': method_name}
-        
-        # Store results for trainer access
-        self.latest_ood_results = ood_results
-        self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
-        
-        return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}, score_distributions
