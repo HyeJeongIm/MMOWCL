@@ -35,6 +35,8 @@ class MMEABaseLearner(BaseLearner):
         self._partialbn = args["partialbn"]
         self._freeze = args["freeze"]
         self._clip_gradient = args["clip_gradient"]
+        self.enable_ood = args["enable_ood"]
+
 
         self.fisher = None
         self._network = None # Placeholder for the network
@@ -64,26 +66,30 @@ class MMEABaseLearner(BaseLearner):
         self.test_loader = DataLoader(
             test_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
         )
-        
-        # OOD test data: unseen classes
-        if self._total_classes < self.total_classnum:
-            ood_test_dataset = data_manager.get_dataset(
-                np.arange(self._total_classes, self.total_classnum),
-                source="test",
-                mode="test"
-            )
-            self.ood_test_loader = DataLoader(
-                ood_test_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
-            )
-            logging.info(f"  OOD classes: {self._total_classes} ~ {self.total_classnum-1}")
+        # 3) OOD Test (parser가 허용할 때만 생성)
+        self.ood_test_loader = None
+        if getattr(self, "enable_ood", True):
+            if self._total_classes < self.total_classnum:
+                ood_test_dataset = data_manager.get_dataset(
+                    np.arange(self._total_classes, self.total_classnum),
+                    source="test",
+                    mode="test",
+                )
+                self.ood_test_loader = DataLoader(
+                    ood_test_dataset,
+                    batch_size=self._batch_size,
+                    shuffle=False,
+                    num_workers=self._num_workers,
+                )
+                logging.info(f"  OOD enabled. OOD classes: {self._total_classes} ~ {self.total_classnum-1}")
+                logging.info(f"  OOD test samples: {len(ood_test_dataset)}")
+            else:
+                logging.info("  OOD enabled, but no unseen classes remain (final task).")
         else:
-            self.ood_test_loader = None
-            logging.info("  No OOD classes available (final task)")
-        
+            logging.info("  OOD disabled by parser (enable_ood=False). Skipping OOD loader creation.")
+
         logging.info(f"  Train samples: {len(train_dataset)}")
         logging.info(f"  ID test samples: {len(test_dataset)}")
-        if self.ood_test_loader:
-            logging.info(f"  OOD test samples: {len(ood_test_dataset)}")
     
     def _train(self, train_loader, test_loader):
         self._network.to(self._device)
@@ -238,71 +244,76 @@ class MMEABaseLearner(BaseLearner):
                 **{f"Task/[{k}]_acc": v for k, v in cnn_accy['grouped'].items()},
             })
 
-        # Step 2: Multiple OOD method evaluation
-        if "ood_methods" not in self.args:
-            logging.error("ood_methods not found in configuration file!")
+        if not self.enable_ood:
+            logging.info("Skipping OOD evaluation (enable_ood=False).")
             return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
         
-        ood_methods = self.args["ood_methods"]
-        
-        logging.info(f"OOD Methods from JSON: {ood_methods}")
-        if self.ood_test_loader is None:
-            logging.warning("No OOD test data available. Skipping OOD evaluation.")
-            return {}, {'cnn': cnn_accy, 'nme': nme_accy if nme_accy else {'top1': 0.0, 'grouped': {}}}, {}
-        
-        ood_results = {}
-        score_distributions = {}  # Store ID/OOD scores for visualization
-        
-        logging.info("=== OOD Detection Results ===")
-        
-        for method_name in ood_methods:
-            try:
-                # Initialize OOD detector
-                if method_name == "MSP":
-                    detector = MSPDetector(self._network, self._device)
-                elif method_name == "Energy":
-                    detector = EnergyDetector(self._network, self._device)
-                elif method_name == "ODIN":
-                    detector = ODINDetector(self._network, self._device)
-                else:
-                    logging.warning(f"Unknown OOD method: {method_name}")
-                    continue
-                
-                logging.info(f"Computing {method_name} scores...")
-                
-                # Compute OOD scores
-                id_scores = detector.compute_scores(self.test_loader)      
-                ood_scores = detector.compute_scores(self.ood_test_loader) 
-                
-                # Store score distributions for visualization
-                score_distributions[method_name] = {
-                    'id_scores': id_scores.tolist() if hasattr(id_scores, 'tolist') else list(id_scores),
-                    'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores)
-                }
-                
-                # Compute OOD metrics
-                metrics = compute_ood_metrics(id_scores, ood_scores, method_name)
-                ood_results[method_name] = metrics
-                
-                # Log results
-                if 'error' not in metrics:
-                    logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%")
-                    logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
-                    logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
-                    logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
-                    # Log OOD metrics to W&B
-                    if self.args['use_wandb']:
-                        wandb.log({
-                            f"Task/{method_name}_auroc": metrics['auroc'],
-                            f"Task/{method_name}_fpr95": metrics['fpr95']
-                        })
-                else:
-                    logging.error(f"{method_name}: Error - {metrics['error']}")
+        else:
+            # Step 2: Multiple OOD method evaluation
+            if "ood_methods" not in self.args:
+                logging.error("ood_methods not found in configuration file!")
+                return  {}, {'cnn': cnn_accy, 'nme': nme_accy}, {}  
+                      
+            ood_methods = self.args["ood_methods"]
+            
+            logging.info(f"OOD Methods from JSON: {ood_methods}")
+            if self.ood_test_loader is None:
+                logging.warning("No OOD test data available. Skipping OOD evaluation.")
+                return  {}, {'cnn': cnn_accy, 'nme': nme_accy}, {}
+            
+            ood_results = {}
+            score_distributions = {}  # Store ID/OOD scores for visualization
+            
+            logging.info("=== OOD Detection Results ===")
+            
+            for method_name in ood_methods:
+                try:
+                    # Initialize OOD detector
+                    if method_name == "MSP":
+                        detector = MSPDetector(self._network, self._device)
+                    elif method_name == "Energy":
+                        detector = EnergyDetector(self._network, self._device)
+                    elif method_name == "ODIN":
+                        detector = ODINDetector(self._network, self._device)
+                    else:
+                        logging.warning(f"Unknown OOD method: {method_name}")
+                        continue
                     
-            except Exception as e:
-                logging.error(f"{method_name} evaluation failed: {e}")
-                ood_results[method_name] = {'error': str(e), 'method': method_name}
-        
+                    logging.info(f"Computing {method_name} scores...")
+                    
+                    # Compute OOD scores
+                    id_scores = detector.compute_scores(self.test_loader)      
+                    ood_scores = detector.compute_scores(self.ood_test_loader) 
+                    
+                    # Store score distributions for visualization
+                    score_distributions[method_name] = {
+                        'id_scores': id_scores.tolist() if hasattr(id_scores, 'tolist') else list(id_scores),
+                        'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores)
+                    }
+                    
+                    # Compute OOD metrics
+                    metrics = compute_ood_metrics(id_scores, ood_scores, method_name)
+                    ood_results[method_name] = metrics
+                    
+                    # Log results
+                    if 'error' not in metrics:
+                        logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%")
+                        logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
+                        logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
+                        logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
+                        # Log OOD metrics to W&B
+                        if self.args['use_wandb']:
+                            wandb.log({
+                                f"Task/{method_name}_auroc": metrics['auroc'],
+                                f"Task/{method_name}_fpr95": metrics['fpr95']
+                            })
+                    else:
+                        logging.error(f"{method_name}: Error - {metrics['error']}")
+                        
+                except Exception as e:
+                    logging.error(f"{method_name} evaluation failed: {e}")
+                    ood_results[method_name] = {'error': str(e), 'method': method_name}
+            
         # Store results for trainer access
         self.latest_ood_results = ood_results
         self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
