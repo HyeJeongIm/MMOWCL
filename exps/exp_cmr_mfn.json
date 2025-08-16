@@ -20,21 +20,21 @@
   "lr_steps": [10, 20],
   "momentum": 0.9,
   "weight_decay": 0.0005,
-  "epochs": 1, 
+  "epochs": 50, 
   "clip_gradient": 20,
   
   "memory_size": 0,
-  "init_cls": 4,
   "increment": 4,
   "shuffle": false,
   
   "partialbn": false,
   "freeze": true,
   
-  "enable_ood": false,
+  "enable_ood": true,
   "ood_methods": ["MSP", "ODIN", "Energy"],
   
   "seed": 1993,
   "device": [0],
-  "prefix": "mmowcl"
+  "prefix": "mmea-owcl",
+  "log_test_acc": false
 }
