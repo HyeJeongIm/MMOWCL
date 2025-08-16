@@ -265,8 +265,20 @@ class MMEABaseLearner(BaseLearner):
             score_distributions = {}  # Store ID/OOD scores for visualization
             
             logging.info("=== OOD Detection Results ===")
+                    
+            # # Get ID logits (single forward pass)
+            print("  📊 Processing ID data...")
+            id_logits = self._extract_logits_batch(self.test_loader)
             
-            for method_name in ood_methods:
+            # Get OOD logits (single forward pass)  
+            print("  🎯 Processing OOD data...")
+            ood_logits = self._extract_logits_batch(self.ood_test_loader)
+            
+            print(f"✅ Logits extracted - ID: {id_logits.shape}, OOD: {ood_logits.shape}")
+            
+            logging.info("Computing logits once for all OOD methods...")
+
+            for method_name in tqdm(ood_methods, desc="OOD Methods", position=0):
                 try:
                     # Initialize OOD detector
                     if method_name == "MSP":
@@ -282,8 +294,10 @@ class MMEABaseLearner(BaseLearner):
                     logging.info(f"Computing {method_name} scores...")
                     
                     # Compute OOD scores
-                    id_scores = detector.compute_scores(self.test_loader)      
-                    ood_scores = detector.compute_scores(self.ood_test_loader) 
+                    # id_scores = detector.compute_scores(self.test_loader)      
+                    # ood_scores = detector.compute_scores(self.ood_test_loader)
+                    id_scores = detector.compute_scores_from_cached_logits(id_logits)      
+                    ood_scores = detector.compute_scores_from_cached_logits(ood_logits) 
                     
                     # Store score distributions for visualization
                     score_distributions[method_name] = {
@@ -319,3 +333,22 @@ class MMEABaseLearner(BaseLearner):
         self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
         
         return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}, score_distributions
+    
+    def _extract_logits_batch(self, loader):
+        """Extract logits from data loader in a single pass"""
+        self._network.eval()
+        all_logits = []
+        
+        with torch.no_grad():
+            for _, inputs, targets in tqdm(loader, desc="Extracting logits", leave=False):
+                # Handle multimodal inputs
+                if isinstance(inputs, dict):
+                    for m in inputs:
+                        inputs[m] = inputs[m].to(self._device)
+                else:
+                    inputs = inputs.to(self._device)
+                
+                outputs = self._network(inputs)
+                all_logits.append(outputs["logits"].cpu())
+        
+        return torch.cat(all_logits, dim=0)
