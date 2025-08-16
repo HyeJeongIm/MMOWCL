@@ -81,8 +81,6 @@ class CMR_MFN(MMEABaseLearner):
         # Setup data loaders with OOD support
         self._setup_data_loaders_with_ood(data_manager)
         self._train(self.train_loader, self.test_loader)
-        self.build_rehearsal_memory(data_manager, self.samples_per_class)
-
 
     def train(self):
         self._network.train()
@@ -215,8 +213,7 @@ class CMR_MFN(MMEABaseLearner):
         logging.info(info)
 
     def _eval_cnn(self, loader):
-        self._network.fusion_networks.to(self._device)
-        self._network.fc_list.to(self._device)
+        self._network.to(self._device)
         self._network.eval()
         y_pred, y_true = [], []
         results = []
@@ -234,15 +231,27 @@ class CMR_MFN(MMEABaseLearner):
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
 
-            results.append({'features': {m: outputs['features'][m].cpu().numpy() for m in self._modality},
-                            'fusion_features': outputs['fusion_features'].cpu().numpy(),
-                            'logits': logits.cpu().numpy()})
+            # Store results for analysis - handle multi-modal features
+            feature_dict = {}
+            if isinstance(outputs['features'], dict):
+                for m in self._modality:
+                    feature_dict[m] = outputs['features'][m].cpu().numpy()
+            else:
+                feature_dict = outputs['features'].cpu().numpy()
+                
+            results.append({
+                'features': feature_dict,
+                'fusion_features': outputs['fusion_features'].cpu().numpy(),
+                'logits': logits.cpu().numpy()
+            })
 
         return np.concatenate(y_pred), np.concatenate(y_true), results  # [N, topk]
 
-    def eval_task(self, scores_dir):
+    # # def eval_task(self, scores_dir):
+    # #     y_pred, y_true, results = self._eval_cnn(self.test_loader)
+    # #     self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
+    def eval_task(self):
         y_pred, y_true, results = self._eval_cnn(self.test_loader)
-        self.save_scores(results, y_true, y_pred, '{}/{}.pkl'.format(scores_dir, self._cur_task))
         cnn_accy = self._evaluate(y_pred, y_true)
 
         if hasattr(self, "_class_means"):

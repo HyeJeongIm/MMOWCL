@@ -11,8 +11,12 @@ import torch.nn.functional as F
 from timesformer.models.helpers import load_pretrained
 from .build import MODEL_REGISTRY
 from itertools import repeat
-from torch._six import container_abcs
-
+# from torch._six import container_abcs
+try:
+    from collections.abc import Iterable
+except ImportError:
+    from collections import Iterable
+    
 DEFAULT_CROP_PCT = 0.875
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
@@ -77,7 +81,7 @@ def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
 # From PyTorch internals
 def _ntuple(n):
     def parse(x):
-        if isinstance(x, container_abcs.Iterable):
+        if isinstance(x, Iterable):
             return x
         return tuple(repeat(x, n))
     return parse
