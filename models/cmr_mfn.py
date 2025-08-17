@@ -8,11 +8,8 @@ from torch import nn
 from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
-from models.base import BaseLearner
 from models.baseline_tsn import TSNBaseline
 from utils.toolkit import count_parameters, tensor2numpy
-from ood import MSPDetector, EnergyDetector, ODINDetector
-from ood.metrics import compute_ood_metrics, compute_threshold_accuracy
 from models.mmeabase import MMEABaseLearner
 
 
@@ -23,18 +20,8 @@ T = 2
 class CMR_MFN(MMEABaseLearner):
     def __init__(self, args):
         super().__init__(args)
-        self._batch_size = args["batch_size"]
-        self._num_workers = args["workers"]
-        self._lr = args["lr"]
-        self._epochs = args["epochs"]
-        self._momentum = args["momentum"]
-        self._weight_decay = args["weight_decay"]
-        self._lr_steps = args["lr_steps"]
-        self._modality = args["modality"]
 
-        self._freeze = args["freeze"]
-        self._clip_gradient = args["clip_gradient"]
-
+        self._num_segments = args["num_segments"]
         self._network = TSNBaseline(args)
         
         # OOD related attributes
@@ -70,7 +57,7 @@ class CMR_MFN(MMEABaseLearner):
             "Learning on {}-{}".format(self._known_classes, self._total_classes)
         )
 
-        # B버전: 이전 태스크의 파라미터 freeze
+        # 이전 태스크의 파라미터 freeze
         if self._cur_task > 0:
             for i in range(self._cur_task):
                 for p in self._network.fusion_networks[i].parameters():
@@ -81,10 +68,12 @@ class CMR_MFN(MMEABaseLearner):
         # Setup data loaders with OOD support
         self._setup_data_loaders_with_ood(data_manager)
         self._train(self.train_loader, self.test_loader)
+        if self._memory_size > 0:
+            self.build_rehearsal_memory(data_manager, self.samples_per_class)
 
     def train(self):
         self._network.train()
-        # B버전: 이전 태스크들은 eval 모드로 설정
+        # 이전 태스크들은 eval 모드로 설정
         if self._cur_task > 0:
             for i in range(self._cur_task):
                 self._network.fusion_networks[i].eval()
@@ -101,7 +90,7 @@ class CMR_MFN(MMEABaseLearner):
             self._init_train(train_loader, test_loader, optimizer, scheduler)
         else:
             self._update_representation(train_loader, test_loader, optimizer, scheduler)
-        # B버전: 현재 태스크 파라미터 저장
+        # 현재 태스크 파라미터 저장
         self._network.save_parameter()
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler):
@@ -170,11 +159,23 @@ class CMR_MFN(MMEABaseLearner):
                 targets = targets.to(self._device)
                 targets = targets - self._known_classes
 
-                # Extract features using Baseline structure
+                # features = self._network.feature_extract_network(inputs)
+                # fake_inputs, fake_targets = self._confusion_mixup(features, targets)
+                # fusion_features = self._network.fusion_network(fake_inputs)["features"]
+                # fake_logits = self._network.fc(fusion_features)['logits']
                 features = self._network.backbone(inputs)
                 fake_inputs, fake_targets = self._confusion_mixup(features, targets)
                 fusion_output = self._network.fusion_network(fake_inputs)
                 fake_logits = self._network.fc(fusion_output["features"])['logits']
+                
+                # 타겟 범위 체크 및 클립핑 추가
+                num_classes = fake_logits.size(1)
+                fake_targets = torch.clamp(fake_targets, 0, num_classes - 1)
+                
+                # print(f"Logits shape: {fake_logits.shape}")
+                # print(f"Targets range: {fake_targets.min()}-{fake_targets.max()}")
+
+                # import ipdb; ipdb.set_trace()
                 
                 loss_clf = F.cross_entropy(fake_logits, fake_targets)
                 loss = loss_clf
@@ -327,3 +328,131 @@ class CMR_MFN(MMEABaseLearner):
             targets = torch.cat([targets, mixup_targets], dim=0)
 
         return inputs, targets
+
+    def _extract_vectors(self, loader):
+        self._network.eval()
+        vectors, targets = [], []
+        for _, _inputs, _targets in loader:
+            for m in self._modality:
+                _inputs[m] = _inputs[m].to(self._device)
+            _targets = _targets.numpy()
+            if isinstance(self._network, nn.DataParallel):
+                _vectors = tensor2numpy(
+                    self._network.module.extract_vector(_inputs)
+                )
+            else:
+                _vectors = tensor2numpy(
+                    self._network.extract_vector(_inputs)
+                )
+
+            vectors.append(_vectors)
+            targets.append(_targets)
+
+        return np.concatenate(vectors), np.concatenate(targets)
+
+    def _reduce_exemplar(self, data_manager, m):
+        logging.info("Reducing exemplars...({} per classes)".format(m))
+        dummy_data, dummy_targets = copy.deepcopy(self._data_memory), copy.deepcopy(
+            self._targets_memory
+        )
+        self._class_means = np.zeros((self._total_classes, self.feature_dim))
+        self._data_memory, self._targets_memory = np.array([]), np.array([])
+
+        for class_idx in range(self._known_classes):
+            mask = np.where(dummy_targets == class_idx)[0]
+            dd, dt = dummy_data[mask][:m], dummy_targets[mask][:m]
+            self._data_memory = (
+                np.concatenate((self._data_memory, dd))
+                if len(self._data_memory) != 0
+                else dd
+            )
+            self._targets_memory = (
+                np.concatenate((self._targets_memory, dt))
+                if len(self._targets_memory) != 0
+                else dt
+            )
+
+            # Exemplar mean
+            idx_dataset = data_manager.get_dataset(
+                [], source="train", mode="test", appendent=(dd, dt)
+            )
+            idx_loader = DataLoader(
+                idx_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
+            )
+            vectors, _ = self._extract_vectors(idx_loader)
+            vectors = (vectors.T / (np.linalg.norm(vectors.T, axis=0) + EPSILON)).T
+            mean = np.mean(vectors, axis=0)
+            mean = mean / np.linalg.norm(mean)
+
+            self._class_means[class_idx, :] = mean
+
+    def _construct_exemplar(self, data_manager, m):
+        logging.info("Constructing exemplars...({} per classes)".format(m))
+        for class_idx in range(self._known_classes, self._total_classes):
+            data, targets, idx_dataset = data_manager.get_dataset(
+                np.arange(class_idx, class_idx + 1),
+                source="train",
+                mode="test",
+                ret_data=True,
+            )
+            idx_loader = DataLoader(
+                idx_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
+            )
+            vectors, _ = self._extract_vectors(idx_loader)
+            vectors = (vectors.T / (np.linalg.norm(vectors.T, axis=0) + EPSILON)).T
+            class_mean = np.mean(vectors, axis=0)
+
+            # Select
+            selected_exemplars = []
+            exemplar_vectors = []  # [n, feature_dim]
+            for k in range(1, m + 1):
+                S = np.sum(
+                    exemplar_vectors, axis=0
+                )  # [feature_dim] sum of selected exemplars vectors
+                mu_p = (vectors + S) / k  # [n, feature_dim] sum to all vectors
+                i = np.argmin(np.sqrt(np.sum((class_mean - mu_p) ** 2, axis=1)))
+                selected_exemplars.append(
+                    data[i]
+                )  # New object to avoid passing by inference
+                exemplar_vectors.append(
+                    vectors[i]
+                )  # New object to avoid passing by inference
+
+                vectors = np.delete(
+                    vectors, i, axis=0
+                )  # Remove it to avoid duplicative selection
+                data = np.delete(
+                    data, i, axis=0
+                )  # Remove it to avoid duplicative selection
+
+            # uniques = np.unique(selected_exemplars, axis=0)
+            # print('Unique elements: {}'.format(len(uniques)))
+            selected_exemplars = np.array(selected_exemplars)
+            exemplar_targets = np.full(m, class_idx)
+            self._data_memory = (
+                np.concatenate((self._data_memory, selected_exemplars))
+                if len(self._data_memory) != 0
+                else selected_exemplars
+            )
+            self._targets_memory = (
+                np.concatenate((self._targets_memory, exemplar_targets))
+                if len(self._targets_memory) != 0
+                else exemplar_targets
+            )
+
+            # Exemplar mean
+            idx_dataset = data_manager.get_dataset(
+                [],
+                source="train",
+                mode="test",
+                appendent=(selected_exemplars, exemplar_targets),
+            )
+            idx_loader = DataLoader(
+                idx_dataset, batch_size=self._batch_size, shuffle=False, num_workers=self._num_workers
+            )
+            vectors, _ = self._extract_vectors(idx_loader)
+            vectors = (vectors.T / (np.linalg.norm(vectors.T, axis=0) + EPSILON)).T
+            mean = np.mean(vectors, axis=0)
+            mean = mean / np.linalg.norm(mean)
+
+            self._class_means[class_idx, :] = mean

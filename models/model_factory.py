@@ -7,7 +7,8 @@ from models.myewc import TBN_EWC, TSN_EWC
 from models.mylwf import TBN_LwF, TSN_LwF
 from models.myicarl import TBN_iCaRL, TSN_iCaRL
 from models.cmr_mfn import CMR_MFN
-
+from models.myreplay import TBN_Replay
+from models.mygem import TBN_GEM
 
 def get_model(model_name, args):
     """Return model instance by name."""
@@ -23,6 +24,8 @@ def get_model(model_name, args):
         "tbn_icarl": TBN_iCaRL,
         "tsn_icarl": TSN_iCaRL,
         'cmr_mfn': CMR_MFN,
+        'tbn_replay': TBN_Replay,
+        'tbn_gem': TBN_GEM,
     }
 
     # Instantiate and return the model if name is valid
