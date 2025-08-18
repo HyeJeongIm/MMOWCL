@@ -24,6 +24,7 @@ def get_model(model_name, args):
         "tbn_icarl": TBN_iCaRL,
         "tsn_icarl": TSN_iCaRL,
         'cmr_mfn': CMR_MFN,
+        'cmr_mfn_r': CMR_MFN,
         'tbn_replay': TBN_Replay,
         'tbn_gem': TBN_GEM,
     }

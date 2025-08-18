@@ -1,7 +1,7 @@
 {
   "dataset": "mmea-tsn",
   "modality": ["RGB", "Gyro", "Acce"],
-  "model_name": "cmr_mfn",
+  "model_name": "cmr_mfn_r",
   
   "backbone": "tsn",
   "arch": "ViT",
@@ -12,7 +12,7 @@
   "mpu_path": "./datasets/UESTC-MMEA-CL/mpu/",
   
   "num_segments": 8,
-  "batch_size": 16,
+  "batch_size": 8,
   "workers": 4,
   "dropout": 0.5,
   
@@ -23,8 +23,8 @@
   "epochs": 50, 
   "clip_gradient": 20,
   
-  "memory_size": 0,
-  "increment": 2,
+  "memory_size": 320,
+  "increment": 8,
   "shuffle": false,
   
   "partialbn": false,
@@ -34,7 +34,7 @@
   "ood_methods": ["MSP", "ODIN", "Energy"],
   
   "seed": 1993,
-  "device": [0],
+  "device": [1],
   "prefix": "mmea-owcl",
   "log_test_acc": false
 }
