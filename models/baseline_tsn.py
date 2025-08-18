@@ -120,8 +120,10 @@ class TSNBaseline(nn.Module):
 
         # Copy weights from existing classifier if available
         if self.fc is not None:
-            num_old_classes = self.fc.num_class
-            new_fc.copy_weights_from(self.fc, num_old_classes)
+            weight = copy.deepcopy(self.fc.weight.data)
+            bias = copy.deepcopy(self.fc.bias.data)
+            new_fc.weight.data = weight[:incre_classes]
+            new_fc.bias.data = bias[:incre_classes]
 
         # Replace current classifier
         del self.fc

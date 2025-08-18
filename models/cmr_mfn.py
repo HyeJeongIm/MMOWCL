@@ -177,6 +177,9 @@ class CMR_MFN(MMEABaseLearner):
                 fusion_output = self._network.fusion_network(fake_inputs)
                 fake_logits = self._network.fc(fusion_output["features"])['logits']
                 
+                num_classes = fake_logits.size(1)
+                fake_targets = torch.clamp(fake_targets, 0, num_classes - 1)
+                
                 loss_clf = F.cross_entropy(fake_logits, fake_targets)
                 loss = loss_clf
 

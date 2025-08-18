@@ -47,13 +47,13 @@ class TSNClassification(nn.Module):
         output = {'logits': base_out}
         return output
 
-    def copy_weights_from(self, other_fc, num_classes_to_copy):
-        """
-        기존 classifier의 weight를 복사 (gen_train_fc에서 사용)
-        """
-        if hasattr(other_fc, 'fc_action'):
-            self.fc_action.weight.data[:num_classes_to_copy] = other_fc.fc_action.weight.data[:num_classes_to_copy]
-            self.fc_action.bias.data[:num_classes_to_copy] = other_fc.fc_action.bias.data[:num_classes_to_copy]
-        elif hasattr(other_fc, 'weight'):
-            self.fc_action.weight.data[:num_classes_to_copy] = other_fc.weight.data[:num_classes_to_copy]
-            self.fc_action.bias.data[:num_classes_to_copy] = other_fc.bias.data[:num_classes_to_copy]
+    # def copy_weights_from(self, other_fc, num_classes_to_copy):
+    #     """
+    #     기존 classifier의 weight를 복사 (gen_train_fc에서 사용)
+    #     """
+    #     if hasattr(other_fc, 'fc_action'):
+    #         self.fc_action.weight.data[:num_classes_to_copy] = other_fc.fc_action.weight.data[:num_classes_to_copy]
+    #         self.fc_action.bias.data[:num_classes_to_copy] = other_fc.fc_action.bias.data[:num_classes_to_copy]
+    #     elif hasattr(other_fc, 'weight'):
+    #         self.fc_action.weight.data[:num_classes_to_copy] = other_fc.weight.data[:num_classes_to_copy]
+    #         self.fc_action.bias.data[:num_classes_to_copy] = other_fc.bias.data[:num_classes_to_copy]
