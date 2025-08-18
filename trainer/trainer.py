@@ -177,7 +177,9 @@ def _log_final_summary(cl_results, ood_results, nb_tasks):
     final_nme_results = cl_results[task_key]['nme']
     msg_acc = f"[Final Avg] FC Acc: {final_cnn_results['top1']:.2f}%"
     msg_grouped_acc = f"[Final Group] FC Acc: {final_cnn_results['grouped']}%"
-    if final_nme_results['top1'] is not None:
+    
+    # CMR_MFN과 같이 메모리가 없는 모델들은 final_nme_results가 None이거나 {}일 수 있음
+    if final_nme_results is not None and 'top1' in final_nme_results and final_nme_results['top1'] is not None:
         msg_acc += f", NME Acc: {final_nme_results['top1']:.2f}%"
         msg_grouped_acc += f", NME Acc: {final_nme_results['grouped']}%"
     logging.info(msg_acc)
