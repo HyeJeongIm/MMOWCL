@@ -74,11 +74,11 @@ def _train(args):
     # Freeze batch normalisation layers except the first
     if args["partialbn"]:
         model._network.backbone.freeze_fn('partialbn_parameters')
-    ######################################################################################################### 일단 여기까지 체크하기 
         
     # Freeze stream weights (leaves only fusion and classification trainable)
     if args["freeze"]:
         model._network.backbone.freeze()
+        
     image_tmpl = {}
     for m in args["modality"]:
         # Prepare dictionaries containing image name templates for each modality
@@ -116,6 +116,28 @@ def _train(args):
         all_ood_results[task_key] = ood_results
         all_cl_results[task_key] = cl_results
         
+        # Create T-SNE visualizations using result_analyzer
+        if hasattr(model, '_visualization_data') and model._visualization_data:
+            try:
+                viz_data = model._visualization_data
+                collector.create_tsne_for_task(
+                    task_id=task_id,
+                    id_features=viz_data['id_features'],
+                    id_labels=viz_data['id_labels'],
+                    ood_features=viz_data['ood_features'],
+                    save_prefix="tsne",
+                    random_state=42
+                )
+                logging.info(f"✅ T-SNE visualizations created for Task {task_id}")
+            except Exception as e:
+                logging.warning(f"T-SNE visualization failed for Task {task_id}: {e}")
+        
+        # Clear cached data to free memory
+        if hasattr(model, 'clear_cached_data'):
+            model.clear_cached_data()
+        if hasattr(model, '_visualization_data'):
+            del model._visualization_data
+        
         # Collect task results
         task_info = {
             'learning_classes': f"{model._known_classes}-{model._total_classes-1}",
@@ -129,6 +151,7 @@ def _train(args):
         }
         collector.add_task_result(task_id, task_info)
         
+
         # Task Summary
         cl_acc = cl_results['cnn']['top1']
         ood_summary = []
@@ -161,6 +184,7 @@ def _train(args):
     # Final summary
     _log_final_summary(all_cl_results, all_ood_results, data_manager.nb_tasks)
     # import ipdb; ipdb.set_trace()
+
 
 
 def _log_final_summary(cl_results, ood_results, nb_tasks):

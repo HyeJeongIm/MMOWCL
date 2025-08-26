@@ -28,7 +28,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dataset', type=str, required=True)
     parser.add_argument('-m', '--model_name', type=str, required=True)
-    parser.add_argument('--wandb_project', type=str, default='MMEA-OWCL')
+    parser.add_argument('--wandb_project', type=str, default='MMEA-OWCL_hj_test')
     parser.add_argument('--wandb_entity', type=str, default='mmea-owcl')
     parser.add_argument('--debug_mode', action='store_true', help='Enable debug mode with reduced steps and no W&B logging')
     args, _ = parser.parse_known_args()

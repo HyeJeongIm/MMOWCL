@@ -232,17 +232,29 @@ class MMEABaseLearner(BaseLearner):
             cnn_accy: {'grouped': {'00-09': 81.27}, 'top1': 81.27}
             nme_accy: None
         '''
-        
+        # import ipdb; ipdb.set_trace()
         if nme_accy is not None:
             logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: {nme_accy['top1']:.2f}%")
         else:
             logging.info(f"CL Accuracy - CNN: {cnn_accy['top1']:.2f}%, NME: Not Available")
-        # Log task metrics to W&B
+            
+        # Log task metrics to W&B (FC 분류기, NME 분류기)
         if self.args['use_wandb']:
-            wandb.log({
-                "Task/avg_acc": cnn_accy['top1'],
-                **{f"Task/[{k}]_acc": v for k, v in cnn_accy['grouped'].items()},
-            })
+            wandb.log({"Task/avg_acc": cnn_accy['top1']})
+            for k, v in cnn_accy['grouped'].items():
+                wandb.log({f"Task/[{k}]_acc": v})
+
+            # ── W&B 로깅 (NME, 있으면만)
+            if nme_accy is not None:
+                wandb.log({"Task/nme_avg_acc": nme_accy['top1']})
+                for k, v in nme_accy.get('grouped', {}).items():
+                    wandb.log({f"Task/NME_[{k}]_acc": v})
+                    
+        # if self.args['use_wandb']:
+        #     wandb.log({
+        #         "Task/avg_acc": cnn_accy['top1'],
+        #         **{f"Task/[{k}]_acc": v for k, v in cnn_accy['grouped'].items()},
+        #     })
 
         if not self.enable_ood:
             logging.info("Skipping OOD evaluation (enable_ood=False).")
@@ -266,17 +278,28 @@ class MMEABaseLearner(BaseLearner):
             
             logging.info("=== OOD Detection Results ===")
                     
-            # # Get ID logits (single forward pass)
-            print("  📊 Processing ID data...")
-            id_logits = self._extract_logits_batch(self.test_loader)
+            # 한 번의 forward pass로 모든 데이터 추출 (logits + features)
+            print("  📊 Processing ID data (logits + features)...")
+            # id_data keys: dict_keys(['logits', 'features', 'labels'])
+            id_data = self._extract_data_batch(self.test_loader, extract_features=True, extract_logits=True)
+            id_logits = id_data['logits']
+            id_features = id_data['features'] 
+            id_labels = id_data['labels']
             
-            # Get OOD logits (single forward pass)  
-            print("  🎯 Processing OOD data...")
-            ood_logits = self._extract_logits_batch(self.ood_test_loader)
+            print("  🎯 Processing OOD data (logits + features)...")
+            ood_data = self._extract_data_batch(self.ood_test_loader, extract_features=True, extract_logits=True)
+            ood_logits = ood_data['logits']
+            ood_features = ood_data['features']
+            ood_labels = ood_data['labels']
             
-            print(f"✅ Logits extracted - ID: {id_logits.shape}, OOD: {ood_logits.shape}")
+            print(f"✅ Data extracted - ID: logits{id_logits.shape}, features{id_features.shape}")
+            print(f"                   OOD: logits{ood_logits.shape}, features{ood_features.shape}")
             
-            logging.info("Computing logits once for all OOD methods...")
+            logging.info("Single forward pass completed for all methods...")
+            
+                    # Store extracted data for T-SNE visualization (avoid re-extraction)
+            self._cached_id_data = {'features': id_features, 'labels': id_labels}
+            self._cached_ood_data = {'features': ood_features, 'labels': ood_labels}
 
             for method_name in tqdm(ood_methods, desc="OOD Methods", position=0):
                 try:
@@ -299,10 +322,16 @@ class MMEABaseLearner(BaseLearner):
                     id_scores = detector.compute_scores_from_cached_logits(id_logits)      
                     ood_scores = detector.compute_scores_from_cached_logits(ood_logits) 
                     
+                    # Extract First Class (originally class 26) scores separately (for tracking specific class evolution)
+                    class_26_indices = np.where(id_labels == 0)[0]  # First class is always 0 in remapped labels
+                    class_26_scores = id_scores[class_26_indices] if len(class_26_indices) > 0 else np.array([])
+                    
                     # Store score distributions for visualization
                     score_distributions[method_name] = {
                         'id_scores': id_scores.tolist() if hasattr(id_scores, 'tolist') else list(id_scores),
-                        'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores)
+                        'ood_scores': ood_scores.tolist() if hasattr(ood_scores, 'tolist') else list(ood_scores),
+                        'class_26_scores': class_26_scores.tolist() if hasattr(class_26_scores, 'tolist') else list(class_26_scores),
+                        'class_26_count': len(class_26_indices)
                     }
                     
                     # Compute OOD metrics
@@ -311,15 +340,51 @@ class MMEABaseLearner(BaseLearner):
                     
                     # Log results
                     if 'error' not in metrics:
-                        logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%")
+                        logging.info(f"{method_name}: AUROC={metrics['auroc']:.2f}%, FPR95={metrics['fpr95']:.2f}%, AUPR={metrics['aupr_id']:.2f}%, YoudenJ={metrics['youdenJ']:.3f}")
+                        logging.info(f"  AUPR Debug - Raw value: {metrics['aupr_id']}, Type: {type(metrics['aupr_id'])}")
                         logging.info(f"  Samples - ID: {metrics['id_samples']}, OOD: {metrics['ood_samples']}")
                         logging.info(f"  ID Score Range: [{id_scores.min():.3f}, {id_scores.max():.3f}]")
                         logging.info(f"  OOD Score Range: [{ood_scores.min():.3f}, {ood_scores.max():.3f}]")
+                        
+                        # ── Confusion@FPR95 요약 로그
+                        cf = metrics['confusion_fpr95']
+                        logging.info(
+                            f"  Conf@FPR95 thr={cf['threshold']:.4f} | "
+                            f"TP={cf['tp']} FP={cf['fp']} TN={cf['tn']} FN={cf['fn']} | "
+                            f"TPR={cf['tpr']:.3f} FPR={cf['fpr']:.3f} | "
+                            f"Prec={cf['precision']:.3f} Rec={cf['recall']:.3f} F1={cf['f1']:.3f}"
+                        )
+                        
+                        # ── Confusion@YoudenJ 요약 로그
+                        cf_youden = metrics['confusion_youdenJ']
+                        logging.info(
+                            f"  Conf@YoudenJ thr={cf_youden['threshold']:.4f} | "
+                            f"TP={cf_youden['tp']} FP={cf_youden['fp']} TN={cf_youden['tn']} FN={cf_youden['fn']} | "
+                            f"TPR={cf_youden['tpr']:.3f} FPR={cf_youden['fpr']:.3f} | "
+                            f"Prec={cf_youden['precision']:.3f} Rec={cf_youden['recall']:.3f} F1={cf_youden['f1']:.3f} | "
+                            f"YoudenJ={cf_youden['youdenJ']:.3f}"
+                        )
                         # Log OOD metrics to W&B
                         if self.args['use_wandb']:
                             wandb.log({
                                 f"Task/{method_name}_auroc": metrics['auroc'],
-                                f"Task/{method_name}_fpr95": metrics['fpr95']
+                                f"Task/{method_name}_fpr95": metrics['fpr95'],
+                                f"Task/{method_name}_aupr":  metrics['aupr_id'],
+                                f"Task/{method_name}_youdenJ": metrics['youdenJ'],
+                                f"Task/{method_name}_cf95_tp":  cf['tp'],
+                                f"Task/{method_name}_cf95_fp":  cf['fp'],
+                                f"Task/{method_name}_cf95_tn":  cf['tn'],
+                                f"Task/{method_name}_cf95_fn":  cf['fn'],
+                                f"Task/{method_name}_cf95_prec":  cf['precision'],
+                                f"Task/{method_name}_cf95_rec":   cf['recall'],
+                                f"Task/{method_name}_cf95_f1":    cf['f1'],
+                                f"Task/{method_name}_cfJ_tp":  cf_youden['tp'],
+                                f"Task/{method_name}_cfJ_fp":  cf_youden['fp'],
+                                f"Task/{method_name}_cfJ_tn":  cf_youden['tn'],
+                                f"Task/{method_name}_cfJ_fn":  cf_youden['fn'],
+                                f"Task/{method_name}_cfJ_prec":  cf_youden['precision'],
+                                f"Task/{method_name}_cfJ_rec":   cf_youden['recall'],
+                                f"Task/{method_name}_cfJ_f1":    cf_youden['f1'],
                             })
                     else:
                         logging.error(f"{method_name}: Error - {metrics['error']}")
@@ -332,23 +397,132 @@ class MMEABaseLearner(BaseLearner):
         self.latest_ood_results = ood_results
         self.latest_cl_results = {'cnn': cnn_accy, 'nme': nme_accy}
         
+        # Store data for external visualization (will be used by trainer)
+        self._visualization_data = {
+            'id_features': id_features,
+            'id_labels': id_labels,
+            'ood_features': ood_features if self.ood_test_loader is not None else None,
+            'score_distributions': score_distributions
+        }
+        '''
+        {'MSP': {'method': 'MSP', 'auroc': 78.30048955815828, 'fpr95': 70.8080808080808, 'id_samples': 326, 'ood_samples': 990}, 'ODIN': {'method': 'ODIN', 'auroc': 81.93189564355208, 'fpr95': 62.62626262626263, 'id_samples': 326, 'ood_samples': 990}, 'Energy': {'method': 'Energy', 'auroc': 80.52023300489557, 'fpr95': 66.86868686868686, 'id_samples': 326, 'ood_samples': 990}}
+        '''
         return ood_results, {'cnn': cnn_accy, 'nme': nme_accy}, score_distributions
     
-    def _extract_logits_batch(self, loader):
-        """Extract logits from data loader in a single pass"""
+    def clear_cached_data(self):
+        """Clear cached data to free memory after T-SNE visualization"""
+        if hasattr(self, '_cached_id_data'):
+            del self._cached_id_data
+        if hasattr(self, '_cached_ood_data'):
+            del self._cached_ood_data
+        logging.info("🧹 Cleared cached feature data to free memory")
+    
+    def _extract_data_batch(self, loader, extract_features=True, extract_logits=True):
+        """
+        통합된 데이터 추출 함수 - 한 번의 forward pass로 logits, features, labels 추출
+        
+        Args:
+            loader: DataLoader
+            extract_features: Whether to extract features for T-SNE
+            extract_logits: Whether to extract logits for OOD detection
+            
+        Returns:
+            dict: {'logits': tensor, 'features': array, 'labels': array}
+        """
         self._network.eval()
         all_logits = []
-        
+        all_features = []
+        all_labels = []
+        C_t = self._classes_seen_so_far  # 누적 클래스 수
+
         with torch.no_grad():
-            for _, inputs, targets in tqdm(loader, desc="Extracting logits", leave=False):
-                # Handle multimodal inputs
+            for _, inputs, targets in tqdm(loader, desc="Extracting data", leave=False):
                 if isinstance(inputs, dict):
                     for m in inputs:
                         inputs[m] = inputs[m].to(self._device)
                 else:
                     inputs = inputs.to(self._device)
-                
-                outputs = self._network(inputs)
-                all_logits.append(outputs["logits"].cpu())
+
+                # 단일 forward pass로 모든 데이터 추출
+                try:
+                    # 네트워크 타입에 따른 조건부 호출 (TSN vs TBN 호환성)
+                    if hasattr(self._network, 'forward') and 'mode' in self._network.forward.__code__.co_varnames:
+                        # TSN 계열: mode 파라미터 지원
+                        outputs = self._network(inputs, cur_task_size=C_t, mode='test')
+                    else:
+                        # TBN 계열: mode 파라미터 미지원, 기본 forward 사용
+                        outputs = self._network(inputs)
+                    
+                    # Extract logits
+                    if extract_logits:
+                        all_logits.append(outputs["logits"].cpu())
+                    
+                    # Extract features  
+                    if extract_features:
+                        features = None
+                        
+                        # TBN과 TSN 호환 feature 추출
+                        if hasattr(self._network, 'extract_vector'):
+                            # TBN/TSN 공통: extract_vector 메서드 사용 (가장 안전)
+                            features = self._network.extract_vector(inputs)
+                        elif 'fusion_features' in outputs:
+                            # TSN: fusion_features 사용 (이미 fusion된 feature)
+                            features = outputs['fusion_features']
+                        elif 'features' in outputs:
+                            # TBN: features는 이미 fusion된 tensor
+                            # TSN: features는 raw features (하지만 fusion_features 우선 사용됨)
+                            features = outputs['features']
+                        
+                        # Ensure features are 2D [batch_size, feature_dim]
+                        if features is not None:
+                            if features.dim() > 2:
+                                features = features.view(features.size(0), -1)
+                            all_features.append(features.cpu())
+                        else:
+                            # Skip batch if features extraction failed
+                            logging.warning(f"Features extraction failed for batch, skipping...")
+                            continue
+                    
+                    all_labels.append(targets.cpu())
+                    
+                except Exception as e:
+                    logging.warning(f"Data extraction failed for batch: {e}")
+                    logging.warning(f"Batch targets shape: {targets.shape}, inputs type: {type(inputs)}")
+                    logging.warning(f"Skipping this batch to avoid dummy data contamination")
+                    # Skip failed batches completely instead of adding dummy data
+                    # This prevents feature/label length mismatch and data contamination
+                    continue
+
+        # Prepare return dictionary
+        result = {}
         
-        return torch.cat(all_logits, dim=0)
+        if extract_logits and all_logits:
+            result['logits'] = torch.cat(all_logits, dim=0)
+            
+        if extract_features and all_features:
+            result['features'] = torch.cat(all_features, dim=0).numpy()
+        else:
+            result['features'] = None
+            
+        if all_labels:
+            result['labels'] = torch.cat(all_labels, dim=0).numpy()
+        else:
+            result['labels'] = None
+            
+        logging.info(f"✅ Extracted data - Logits: {result['logits'].shape if 'logits' in result else 'None'}, "
+                    f"Features: {result['features'].shape if result['features'] is not None else 'None'}, "
+                    f"Labels: {result['labels'].shape if result['labels'] is not None else 'None'}")
+        
+        return result
+    
+    # Legacy wrapper functions for backward compatibility
+    def _extract_logits_batch(self, loader):
+        """Legacy function - extracts only logits"""
+        result = self._extract_data_batch(loader, extract_features=False, extract_logits=True)
+        return result.get('logits', torch.empty(0))
+    
+    def _extract_features_batch(self, loader):
+        """Legacy function - extracts only features and labels"""
+        result = self._extract_data_batch(loader, extract_features=True, extract_logits=False)
+        return result.get('features'), result.get('labels')
+  

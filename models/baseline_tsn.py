@@ -42,11 +42,12 @@ class TSNBaseline(nn.Module):
         )
 
         # Set feature dimension for classifier
+        # multi modality
         if len(self.modality) > 1:
             if self.fusion_type == 'attention':
                 self.feature_dim = 128
             elif self.fusion_type == 'concat':
-                self.feature_dim = 768 * len(self.modality)
+                self.feature_dim = 768 * len(self.modality) # concat → 768*3=2304
         else:
             self.feature_dim = 768
 
