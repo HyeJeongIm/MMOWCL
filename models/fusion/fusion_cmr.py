@@ -80,16 +80,22 @@ class FusionCMR(nn.Module):
         if len(self.modality) > 1:  # Multi modality: Fusion
             if self.fusion_type == 'attention':
                 for m in self.modality:
-                    out = inputs[m]
-                    out = out.unsqueeze(1)
+                    out = inputs[m] # [4, 768]
+                    out = out.unsqueeze(1) # [4, 1, 768] - sequence 차원 추가
                     outs.append(out)
-                out = torch.cat(outs, dim=1)
-                out, attn = self.selfat(out)
-                base_out = torch.mean(out, 1)
+                    
+                # 모든 모달리티를 sequence로 연결
+                out = torch.cat(outs, dim=1) # [4, 3, 768] (3개 모달리티)
+                
+                # self-attention 적용 
+                out, attn = self.selfat(out) # [4, 3, 128] (768→128로 projection)
+                
+                base_out = torch.mean(out, 1) # [4, 128] (3개 모달리티 평균)
+                
             elif self.fusion_type == 'concat':
                 for m in self.modality:
-                    outs.append(inputs[m])
-                base_out = torch.cat(outs, dim=1)
+                    outs.append(inputs[m])  # [4, 768] 각각
+                base_out = torch.cat(outs, dim=1) # [4, 768*3] = [4, 2304]
             else:
                 raise ValueError(f"Unknown fusion type: {self.fusion_type}")
         else:  # Single modality

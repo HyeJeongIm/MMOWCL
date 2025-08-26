@@ -1,13 +1,13 @@
 {
   "dataset": "mmea-tsn",
-  "modality": ["RGB", "Gyro", "Acce"],
+  "modality": ["RGB"],
   "model_name": "cmr_mfn_r",
   
   "backbone": "tsn",
   "arch": "ViT",
   "fusion_type": "attention",
   
-  "train_list": "mydataset_train.txt",
+  "train_list": "mydataset_total_train.txt",
   "test_list": "mydataset_test.txt",
   "mpu_path": "./datasets/UESTC-MMEA-CL/mpu/",
   
@@ -24,7 +24,7 @@
   "clip_gradient": 20,
   
   "memory_size": 320,
-  "increment": 8,
+  "increment": 2,
   "shuffle": false,
   
   "partialbn": false,

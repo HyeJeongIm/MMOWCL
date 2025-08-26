@@ -32,6 +32,7 @@ class TSN(nn.Module):
         for m in self.modality:
             self.add_module(m.lower(), self.base_model[m])
 
+    # 분류 레이어 확실하게 제거
     def _remove_classfication_layer(self):
         for m in self.modality:
             if m=="RGB":
@@ -52,6 +53,7 @@ class TSN(nn.Module):
             self.input_std = OrderedDict()
 
             for m in self.modality:
+                # 8개 프레임을 동시에 처리하여 시간적 관계 학습
                 if m == "RGB":
                     self.base_model[m] = TimeSformer(img_size=224, num_classes=32, num_frames=self.num_segments, attention_type='divided_space_time',         
                                         pretrained_model='')
@@ -65,7 +67,7 @@ class TSN(nn.Module):
                 self.input_std[m] = [.229, .224, .225]
 
                 if m == 'RGB':
-                    self.input_mean[m] = [.485, .456, .406]
+                    self.input_mean[m] = [.485, .456, .406] # RGB 채널별 평균값
 
             self.feature_dim = 768
         else:

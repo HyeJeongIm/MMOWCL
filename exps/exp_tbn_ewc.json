@@ -11,7 +11,7 @@
   
   "train_list": "mydataset_total_train.txt",
   "test_list": "mydataset_test.txt",
-  "mpu_path": "./data/UESTC-MMEA-CL/mpu/",
+  "mpu_path": "./datasets/UESTC-MMEA-CL/mpu/",
   
   "num_segments": 8,
   "batch_size": 8,
@@ -22,7 +22,7 @@
   "lr_steps": [10, 20],
   "momentum": 0.9,
   "weight_decay": 0.0005,
-  "epochs": 50, 
+  "epochs": 1, 
   "clip_gradient": 20,
   
   "memory_size": 0,

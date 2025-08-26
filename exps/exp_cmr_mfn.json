@@ -7,7 +7,7 @@
   "arch": "ViT",
   "fusion_type": "attention",
   
-  "train_list": "mydataset_train.txt",
+  "train_list": "mydataset_total_train.txt",
   "test_list": "mydataset_test.txt",
   "mpu_path": "./datasets/UESTC-MMEA-CL/mpu/",
   
@@ -20,11 +20,11 @@
   "lr_steps": [10, 20],
   "momentum": 0.9,
   "weight_decay": 0.0005,
-  "epochs": 50, 
+  "epochs": 1, 
   "clip_gradient": 20,
   
   "memory_size": 0,
-  "increment": 2,
+  "increment": 8,
   "shuffle": false,
   
   "partialbn": false,
@@ -34,7 +34,7 @@
   "ood_methods": ["MSP", "ODIN", "Energy"],
   
   "seed": 1993,
-  "device": [0],
+  "device": [1],
   "prefix": "mmea-owcl",
   "log_test_acc": false
 }

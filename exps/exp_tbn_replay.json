@@ -1,6 +1,6 @@
 {
   "dataset": "mmea-tbn",
-  "modality": ["RGB", "Gyro", "Acce"],
+  "modality": ["RGB"],
   "model_name": "tbn_replay",
   
   "backbone": "tbn",
@@ -26,7 +26,7 @@
   "clip_gradient": 20,
   
   "memory_size": 320,
-  "increment": 4,
+  "increment": 8,
   "shuffle": false,
   
   "partialbn": true,
@@ -36,7 +36,7 @@
   "ood_methods": ["MSP", "ODIN", "Energy"],
   
   "seed": 1993,
-  "device": [0],
+  "device": [1],
   "prefix": "mmea-owcl",
   "log_test_acc": false
 }
